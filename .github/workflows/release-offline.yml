@@ -1,0 +1,152 @@
+name: Publish Complete Ready-to-Listen Offline Quran Instrument
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      reciters:
+        description: 'Reciter slugs to download & compress (all or comma-separated e.g. 02-alafasy,06-dosari)'
+        required: true
+        default: 'all'
+      audio_format:
+        description: 'Compression format (opus = smallest ~260MB/reciter, m4a = universal iOS+Desktop)'
+        required: true
+        default: 'opus'
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # JOB 1: Run Full Verification & Test Suite
+  # ---------------------------------------------------------------------------
+  verify-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run test:node
+      - run: npm run test
+      - run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # JOB 2: Generate 604-Page Uthmani Mushaf + Download & Compress Offline Audio Packs
+  # ---------------------------------------------------------------------------
+  build-offline-audio-packs:
+    needs: verify-and-test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        reciter:
+          - 02-alafasy
+          - 03-husary
+          - 04-minshawy
+          - 05-abdulbasit
+          - 06-dosari
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install FFmpeg & Zstd
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg zip
+      - run: npm ci
+      - name: Download & Compress Full 114 Surahs (24kbps Mono Opus)
+        run: |
+          FORMAT="${{ github.event.inputs.audio_format || 'opus' }}"
+          node scripts/build-offline-packs.mjs --reciters=${{ matrix.reciter }} --format=$FORMAT --concurrency=8
+      - name: Archive Compressed Reciter Pack
+        run: |
+          mkdir -p release-packs
+          cd public/audio-packs
+          zip -r -0 "../../release-packs/quran-pack-${{ matrix.reciter }}.zip" "${{ matrix.reciter }}"
+          ls -lh "../../release-packs/quran-pack-${{ matrix.reciter }}.zip"
+      - name: Upload Reciter Pack Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pack-${{ matrix.reciter }}
+          path: release-packs/quran-pack-${{ matrix.reciter }}.zip
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # JOB 3: Build Cross-Platform Desktop Apps (Windows, macOS, Linux) + Offline PWA
+  # ---------------------------------------------------------------------------
+  build-desktop-and-pwa:
+    needs: verify-and-test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: macos
+          - os: ubuntu-22.04
+            target: linux
+          - os: windows-latest
+            target: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux Tauri Dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: Bundle Complete 604-Page Madani Mushaf Text Offline
+        run: npm run generate:mushaf
+      - name: Build Offline PWA Bundle (Linux runner)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          npm run build
+          cd dist && zip -r ../quran-instrument-pwa-offline.zip .
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-22.04'
+        with:
+          name: pwa-offline-bundle
+          path: quran-instrument-pwa-offline.zip
+          retention-days: 7
+      - name: Build Native Tauri v2 Installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Quran Instrument ${{ github.ref_name }} (Complete Offline Edition)'
+          releaseBody: 'Ready-to-listen Tactile Quran Recitation Instrument with all 114 Surahs (6,236 verses), Qari Muhammad Shamim, Alafasy, Husary, Minshawy, Abdul Basit, and Yasser Al-Dosari compressed 24kbps Mono Opus offline packs.'
+          releaseDraft: false
+          prerelease: false
+
+  # ---------------------------------------------------------------------------
+  # JOB 4: Attach All Compressed Offline Reciter Packs + Offline PWA to GitHub Release
+  # ---------------------------------------------------------------------------
+  publish-offline-packs-to-release:
+    needs: [build-offline-audio-packs, build-desktop-and-pwa]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download All Built Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Publish Compressed Offline Audio Packs & PWA to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || 'v1.0.0-offline' }}
+          name: 'Quran Instrument Offline Release (${{ github.ref_name || ''v1.0.0-offline'' }})'
+          files: |
+            release-assets/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

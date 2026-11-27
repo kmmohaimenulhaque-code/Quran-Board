@@ -1,0 +1,64 @@
+[
+  {
+    "id": 1,
+    "slug": "01-shamim",
+    "name": "Qari Muhammad Shamim",
+    "shortName": "SHAMIM",
+    "providerMode": "local-baqarah",
+    "localSurah": 2,
+    "localAudioPath": "/audio/baqarah-preview.mp3",
+    "everyAyahDir": "Alafasy_128kbps",
+    "packFormat": "opus",
+    "description": "Surah Al-Baqarah (Bundled Preview + Compressed Full Pack)"
+  },
+  {
+    "id": 2,
+    "slug": "02-alafasy",
+    "name": "Mishary Rashid Alafasy",
+    "shortName": "ALAFASY",
+    "providerMode": "everyayah",
+    "everyAyahDir": "Alafasy_128kbps",
+    "packFormat": "opus",
+    "description": "Full 114 Surahs · 24kbps Mono Opus Offline Pack"
+  },
+  {
+    "id": 3,
+    "slug": "03-husary",
+    "name": "Mahmoud Khalil Al-Husary",
+    "shortName": "HUSARY",
+    "providerMode": "everyayah",
+    "everyAyahDir": "Husary_128kbps",
+    "packFormat": "opus",
+    "description": "Full 114 Surahs · 24kbps Mono Opus Offline Pack"
+  },
+  {
+    "id": 4,
+    "slug": "04-minshawy",
+    "name": "Mohamed Siddiq Al-Minshawy",
+    "shortName": "MINSHAWY",
+    "providerMode": "everyayah",
+    "everyAyahDir": "Minshawy_Murattal_128kbps",
+    "packFormat": "opus",
+    "description": "Full 114 Surahs · 24kbps Mono Opus Offline Pack"
+  },
+  {
+    "id": 5,
+    "slug": "05-abdulbasit",
+    "name": "Abdul Basit Abdus Samad",
+    "shortName": "ABDULBASIT",
+    "providerMode": "everyayah",
+    "everyAyahDir": "Abdul_Basit_Murattal_192kbps",
+    "packFormat": "opus",
+    "description": "Full 114 Surahs · 24kbps Mono Opus Offline Pack"
+  },
+  {
+    "id": 6,
+    "slug": "06-dosari",
+    "name": "Yasser Al-Dosari",
+    "shortName": "DOSARI",
+    "providerMode": "everyayah",
+    "everyAyahDir": "Yasser_Ad-Dussary_128kbps",
+    "packFormat": "opus",
+    "description": "Full 114 Surahs · 24kbps Mono Opus Offline Pack"
+  }
+]

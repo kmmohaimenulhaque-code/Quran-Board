@@ -199,21 +199,7 @@ jobs:
           brew install xcodegen || true
           npx tauri ios init --ci --skip-targets-install
           npx tauri icon public/icons/icon-512.png
-          python3 - << 'PYEOF'
-          from pathlib import Path
-          yml = Path("src-tauri/gen/apple/project.yml")
-          txt = yml.read_text(encoding="utf-8")
-          if "CODE_SIGNING_ALLOWED" not in txt:
-              txt = txt.replace(
-                  "      base:",
-                  "      base:
-        CODE_SIGNING_ALLOWED: "NO"
-        CODE_SIGNING_REQUIRED: "NO"
-        CODE_SIGN_IDENTITY: """,
-                  1
-              )
-              yml.write_text(txt, encoding="utf-8")
-          PYEOF
+          node scripts/patch-ios-unsigned.mjs
           (cd src-tauri/gen/apple && xcodegen generate)
           npx tauri ios build --ci || true
           APP_PATH=$(find src-tauri/gen/apple/build -name "*.app" -type d | head -n 1)

@@ -1,0 +1,82 @@
+import React, { useMemo, useState } from 'react';
+import surahsJson from '../assets/data/surahs-114.json';
+
+export interface SurahMeta {
+  id: number;
+  arabic: string;
+  english: string;
+  ayahs: number;
+  startPage: number;
+}
+
+const SURAHS = surahsJson as SurahMeta[];
+
+interface SurahDrawerProps {
+  open: boolean;
+  currentPage: number;
+  onSelectPage: (page: number) => void;
+  onClose: () => void;
+}
+
+export const SurahDrawer: React.FC<SurahDrawerProps> = ({
+  open,
+  currentPage,
+  onSelectPage,
+  onClose
+}) => {
+  const [query, setQuery] = useState('');
+
+  const activeSurahId = useMemo(() => {
+    let match = SURAHS[0];
+    for (const s of SURAHS) {
+      if (s.startPage <= currentPage) match = s;
+      else break;
+    }
+    return match.id;
+  }, [currentPage]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return SURAHS;
+    return SURAHS.filter(
+      (s) => String(s.id) === q || s.english.toLowerCase().includes(q) || s.arabic.includes(q)
+    );
+  }, [query]);
+
+  return (
+    <div className={`surah-sheet ${open ? 'open' : ''}`} aria-label="All 114 Surahs">
+      <div className="surah-sheet-head">
+        <input
+          type="text"
+          className="surah-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search 114 Surahs (e.g. Baqarah, 36, يس)..."
+        />
+        <button type="button" className="surah-close-btn" onClick={onClose}>
+          ESC
+        </button>
+      </div>
+      <div className="surah-list">
+        {filtered.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className={`surah-item ${s.id === activeSurahId ? 'current' : ''}`}
+            onClick={() => {
+              onSelectPage(s.startPage);
+              onClose();
+            }}
+          >
+            <span className="surah-num">{String(s.id).padStart(3, '0')}</span>
+            <span className="surah-en">{s.english}</span>
+            <span className="surah-ar">{s.arabic}</span>
+            <span className="surah-meta">
+              P.{String(s.startPage).padStart(3, '0')} · {s.ayahs}v
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};

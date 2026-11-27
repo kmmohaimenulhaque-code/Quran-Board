@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Mobile capabilities including native haptics and offline audio cache",
+  "windows": ["main"],
+  "platforms": ["iOS", "android"],
+  "permissions": [
+    "core:default",
+    "fs:allow-appcache-read-recursive",
+    "fs:allow-appcache-write-recursive",
+    "haptics:allow-impact-feedback"
+  ]
+}

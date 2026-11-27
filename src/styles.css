@@ -1,0 +1,967 @@
+:root {
+      --desk-bg: #0B0D10;
+      --slab-radius: 24px;
+      --led-label: #FF5C35;
+      --led-digit: #FF542E;
+      --led-ghost: rgba(255, 84, 46, 0.065);
+      --cyan-line: rgba(78, 168, 199, 0.44);
+      --cyan-border: rgba(78, 168, 199, 0.52);
+      --slate-active: #F4FAFF;
+      --slate-revealed: #DCE6EE;
+      --flip-duration: 550ms;
+      --flip-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background:
+        radial-gradient(ellipse 85% 65% at 50% 42%, #151921 0%, #0B0D10 68%, #07080A 100%);
+      color: #E2E8F0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Centered physical stage */
+    .stage {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 14px 18px 16px 18px;
+      perspective: 1400px;
+    }
+
+    /* Hardware chassis wrapper */
+    .chassis-assembly {
+      position: relative;
+      width: min(500px, calc(100vw - 36px));
+      height: min(684px, calc(100vh - 36px));
+      aspect-ratio: 3 / 4.1;
+      max-height: calc(100vh - 36px);
+      max-width: calc((100vh - 36px) * (3 / 4.1));
+      transform-style: preserve-3d;
+      transition: transform var(--flip-duration) var(--flip-ease);
+    }
+
+    .chassis-assembly.flipped {
+      transform: rotateY(180deg);
+    }
+
+    /* Grounded contact shadow under slab */
+    .chassis-assembly::before {
+      content: '';
+      position: absolute;
+      inset: 14px -8px -20px -8px;
+      border-radius: 34px;
+      background: radial-gradient(ellipse at 50% 55%, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.45) 55%, transparent 78%);
+      filter: blur(18px);
+      transform: translateZ(-2px);
+      pointer-events: none;
+    }
+
+    /* Common Face styling */
+    .slab-face {
+      position: absolute;
+      inset: 0;
+      border-radius: var(--slab-radius);
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      overflow: hidden;
+      box-shadow:
+        /* Top-left chamfered rim highlight */
+        inset 1.5px 1.5px 1px rgba(255, 255, 255, 0.11),
+        /* Bottom-right subtle bevel shadow */
+        inset -2px -2px 4px rgba(0, 0, 0, 0.65),
+        /* Outer molded body depth */
+        0 24px 54px rgba(0, 0, 0, 0.78),
+        0 6px 16px rgba(0, 0, 0, 0.65),
+        0 0 0 1px rgba(255, 255, 255, 0.05);
+    }
+
+    /* Micro-grain procedural anodized surface overlay */
+    .slab-face::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: var(--slab-radius);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.88' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.038;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+      z-index: 20;
+    }
+
+    /* =========================================================================
+       FACE A — CONTROL DECK (Matte Obsidian Anodized Slab)
+    ========================================================================= */
+    .face-a {
+      transform: rotateY(0deg) translateZ(1px);
+      z-index: 2;
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transition: opacity 0ms linear 240ms, visibility 0ms linear 240ms;
+      background:
+        radial-gradient(120% 85% at 15% 8%, rgba(255, 255, 255, 0.045) 0%, transparent 55%),
+        linear-gradient(148deg, #16181C 0%, #131417 48%, #1B1D21 100%);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: clamp(32px, 7.5%, 54px) clamp(24px, 6.2%, 38px) clamp(24px, 5.5%, 36px) clamp(28px, 7.2%, 44px);
+    }
+
+    .chassis-assembly.flipped .face-a {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .control-rows {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-evenly;
+      gap: 6px;
+    }
+
+    .control-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      column-gap: clamp(12px, 3.2vw, 22px);
+      padding: 6px 0;
+      position: relative;
+      z-index: 5;
+    }
+
+    .row-label {
+      font-size: clamp(16px, 3.8vw, 22px);
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      color: var(--led-label);
+      text-shadow:
+        0 0 8px rgba(255, 84, 46, 0.58),
+        0 0 18px rgba(255, 70, 30, 0.25);
+      cursor: pointer;
+      transition: opacity 150ms ease;
+    }
+
+    .control-row.focused-row .row-label {
+      text-shadow:
+        0 0 10px rgba(255, 92, 53, 0.8),
+        0 0 22px rgba(255, 70, 30, 0.35);
+    }
+
+    /* 7-Segment LED Readout Container */
+    .led-readout {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      height: clamp(40px, 8.8vw, 54px);
+      min-width: clamp(68px, 16vw, 96px);
+    }
+
+    .led-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 5px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: transform 120ms ease, filter 180ms ease;
+    }
+
+    .led-group.selectable:hover {
+      filter: brightness(1.12);
+    }
+
+    .led-group.active-focus {
+      animation: ledBreath 1.8s ease-in-out infinite;
+    }
+
+    @keyframes ledBreath {
+      0%, 100% { filter: drop-shadow(0 0 6px rgba(255, 84, 46, 0.45)); }
+      50% { filter: drop-shadow(0 0 14px rgba(255, 110, 68, 0.92)) brightness(1.15); }
+    }
+
+    .seg-svg {
+      height: clamp(36px, 8vw, 48px);
+      width: auto;
+      display: block;
+      overflow: visible;
+    }
+
+    .seg-hyphen {
+      width: clamp(14px, 3vw, 20px);
+      height: clamp(36px, 8vw, 48px);
+      display: block;
+      overflow: visible;
+    }
+
+    /* Tactile Stacked Circular Concave Rocker Pair */
+    .rocker-pair {
+      display: flex;
+      flex-direction: column;
+      gap: clamp(5px, 1.2vw, 7px);
+      align-items: center;
+      justify-content: center;
+      padding: 2px;
+    }
+
+    .rocker-btn {
+      width: clamp(26px, 5.8vw, 31px);
+      height: clamp(26px, 5.8vw, 31px);
+      border-radius: 50%;
+      border: none;
+      outline: none;
+      cursor: pointer;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(circle at 32% 28%, #2C3037 0%, #1B1D22 52%, #111216 100%);
+      box-shadow:
+        0 3px 6px rgba(0, 0, 0, 0.78),
+        0 1px 2px rgba(0, 0, 0, 0.9),
+        inset 0 1px 1px rgba(255, 255, 255, 0.14),
+        inset 0 -2px 3px rgba(0, 0, 0, 0.65);
+      transition: transform 65ms ease, box-shadow 65ms ease;
+      touch-action: none;
+    }
+
+    /* Concave dimple inside rocker */
+    .rocker-btn::before {
+      content: '';
+      position: absolute;
+      inset: 3px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 65% 68%, #23262C 0%, #14161A 75%);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.85);
+      pointer-events: none;
+    }
+
+    .rocker-btn svg {
+      position: relative;
+      z-index: 2;
+      width: 10px;
+      height: 10px;
+      fill: rgba(255, 255, 255, 0.34);
+      transition: fill 80ms ease;
+    }
+
+    .rocker-btn:hover svg {
+      fill: rgba(255, 118, 82, 0.72);
+    }
+
+    .rocker-btn.pressed,
+    .rocker-btn:active {
+      transform: translateY(1.2px) scale(0.96);
+      box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.85),
+        inset 0 2px 5px rgba(0, 0, 0, 0.92),
+        inset 0 -1px 1px rgba(255, 255, 255, 0.06);
+    }
+
+    .rocker-btn.pressed svg,
+    .rocker-btn:active svg {
+      fill: rgba(255, 108, 70, 0.95);
+    }
+
+    /* Subtle Bezel Footer (Reciter Peek & Micro MP3 Slot) */
+    .face-a-bezel {
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      z-index: 6;
+      padding: 0 2px;
+    }
+
+    .reciter-peek {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(255, 138, 106, 0.56);
+      opacity: 0;
+      transition: opacity 380ms ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 78%;
+    }
+
+    .reciter-peek.visible {
+      opacity: 1;
+    }
+
+    .reciter-peek.error {
+      color: rgba(255, 90, 54, 0.92);
+      text-shadow: 0 0 8px rgba(255, 84, 46, 0.65);
+    }
+
+    /* Ultra-subtle hardware micro-slot for loading user's full local MP3 */
+    .mp3-slot-btn {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 99px;
+      color: rgba(255, 255, 255, 0.24);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      padding: 2px 7px;
+      cursor: pointer;
+      transition: all 200ms ease;
+      text-transform: uppercase;
+    }
+
+    .mp3-slot-btn:hover {
+      color: rgba(255, 118, 82, 0.82);
+      border-color: rgba(255, 92, 53, 0.38);
+    }
+
+    .mp3-slot-btn.loaded {
+      color: rgba(110, 212, 238, 0.65);
+      border-color: rgba(78, 168, 199, 0.35);
+    }
+
+    /* =========================================================================
+       FACE B — RECITATION SLATE (Cool Dark Matte Charcoal-Blue + Dashed Cyan)
+    ========================================================================= */
+    .face-b {
+      transform: rotateY(180deg) translateZ(1px);
+      z-index: 1;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0ms linear 240ms, visibility 0ms linear 240ms;
+      background:
+        radial-gradient(125% 90% at 18% 10%, rgba(120, 175, 210, 0.06) 0%, transparent 55%),
+        linear-gradient(155deg, #1B232E 0%, #1A212B 45%, #222B36 100%);
+      display: flex;
+      flex-direction: column;
+      padding: 28px 22px 10px 22px;
+    }
+
+    .chassis-assembly.flipped .face-b {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      z-index: 2;
+    }
+
+    .slate-frame {
+      position: relative;
+      flex: 1;
+      border: 1.2px dashed var(--cyan-border);
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      z-index: 5;
+    }
+
+    /* 7 internal evenly spaced dashed cyan horizontal guide lines (creating 8 rows) */
+    .slate-grid-lines {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .slate-grid-row {
+      flex: 1;
+      border-bottom: 1px dashed var(--cyan-line);
+    }
+
+    .slate-grid-row:last-child {
+      border-bottom: none;
+    }
+
+    /* Zero-reflow RTL Arabic Word Canvas */
+    .slate-text-viewport {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      height: 100%;
+      padding: 0 16px;
+      overflow: hidden;
+      transition: opacity 320ms ease;
+    }
+
+    .slate-text-viewport.fading {
+      opacity: 0;
+    }
+
+    .slate-words-layer {
+      direction: rtl;
+      unicode-bidi: isolate;
+      text-align: justify;
+      text-align-last: center;
+      font-family: 'KFGQPC Uthmanic Script HAFS', 'Amiri Quran', 'Scheherazade New', serif;
+      font-size: var(--arabic-font-size, 25px);
+      line-height: var(--slate-row-height, 74px);
+      color: var(--slate-revealed);
+      word-spacing: 0.14em;
+      transform: translateY(var(--slate-page-offset, 0px));
+      transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+      padding-top: 2px;
+    }
+
+    .word-token {
+      display: inline;
+      opacity: 0;
+      color: var(--slate-revealed);
+      transition: opacity 110ms ease-out, color 110ms ease-out, text-shadow 140ms ease-out;
+    }
+
+    .word-token.active {
+      opacity: 1;
+      color: var(--slate-active);
+      text-shadow:
+        0 0 12px rgba(96, 198, 232, 0.65),
+        0 0 24px rgba(78, 168, 199, 0.32);
+    }
+
+    .word-token.revealed {
+      opacity: 0.9;
+      color: var(--slate-revealed);
+      text-shadow: none;
+    }
+
+    .ayah-medallion {
+      display: inline;
+      font-size: 0.78em;
+      color: rgba(128, 206, 232, 0.88);
+      margin: 0 4px;
+      opacity: 0;
+      transition: opacity 160ms ease-out, text-shadow 160ms ease-out;
+    }
+
+    .ayah-medallion.lit {
+      opacity: 0.92;
+      text-shadow: 0 0 10px rgba(96, 198, 232, 0.45);
+    }
+
+    /* Whisper Bezel Telemetry on Face B */
+    .face-b-bezel {
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 6px 0 6px;
+      position: relative;
+      z-index: 6;
+    }
+
+    .telemetry-text {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.11em;
+      color: rgba(198, 224, 240, 0.36);
+      text-transform: uppercase;
+    }
+
+    .slate-status-dot {
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+      background: rgba(78, 168, 199, 0.45);
+      transition: background 200ms ease, box-shadow 200ms ease;
+    }
+
+    .slate-status-dot.playing {
+      background: #60C6E8;
+      box-shadow: 0 0 8px rgba(96, 198, 232, 0.85);
+    }
+
+    .slate-status-dot.paused {
+      background: #FF5C35;
+      box-shadow: 0 0 8px rgba(255, 92, 53, 0.7);
+    }
+
+    /* Subtle top-right bezel flip notch on Face B */
+    .flip-notch {
+      position: absolute;
+      top: 7px;
+      right: 16px;
+      z-index: 15;
+      background: transparent;
+      border: none;
+      color: rgba(145, 205, 228, 0.32);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: color 180ms ease, background 180ms ease;
+    }
+
+    .flip-notch:hover {
+      color: rgba(180, 230, 250, 0.82);
+      background: rgba(78, 168, 199, 0.12);
+    }
+
+    /* =========================================================================
+       PHYSICAL RIGHT-EDGE RECESSED HARDWARE BUTTON
+    ========================================================================= */
+    .edge-trigger {
+      position: fixed;
+      /* Positioned dynamically or anchored cleanly to right rim of slab */
+    }
+
+    .slab-shell {
+      position: relative;
+      width: min(490px, calc(100vw - 44px));
+      height: min(650px, calc(100vh - 88px));
+      aspect-ratio: 3 / 4.1;
+      max-height: calc(100vh - 88px);
+      max-width: calc((100vh - 88px) * (3 / 4.1));
+      perspective: 1400px;
+    }
+
+    .chassis-assembly {
+      width: 100%;
+      height: 100%;
+    }
+
+    .rim-button-mount {
+      position: absolute;
+      right: -13px;
+      top: 48%;
+      transform: translateY(-50%);
+      width: 13px;
+      height: 86px;
+      z-index: 30;
+      cursor: pointer;
+      border: none;
+      outline: none;
+      border-radius: 0 7px 7px 0;
+      background: linear-gradient(180deg, #2B2F37 0%, #1C1F25 50%, #121418 100%);
+      box-shadow:
+        2px 0 6px rgba(0, 0, 0, 0.75),
+        inset -1px 0 1px rgba(255, 255, 255, 0.14),
+        inset 1px 0 2px rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 90ms ease, width 90ms ease;
+    }
+
+    .rim-button-mount:hover {
+      background: linear-gradient(180deg, #353A44 0%, #23272F 50%, #171A1F 100%);
+    }
+
+    .rim-button-mount:active,
+    .rim-button-mount.pressed {
+      transform: translateY(-50%) translateX(-2px);
+    }
+
+    /* Edge LED slit */
+    .rim-led {
+      width: 3px;
+      height: 30px;
+      border-radius: 99px;
+      background: rgba(255, 92, 53, 0.52);
+      box-shadow: 0 0 8px rgba(255, 84, 46, 0.55);
+      transition: background 220ms ease, box-shadow 220ms ease;
+    }
+
+    .rim-button-mount.prefetching .rim-led {
+      animation: edgePulse 0.7s ease-in-out infinite;
+    }
+
+    .rim-button-mount.slate-active .rim-led {
+      background: rgba(96, 198, 232, 0.78);
+      box-shadow: 0 0 10px rgba(96, 198, 232, 0.75);
+    }
+
+    .rim-button-mount.slate-paused .rim-led {
+      background: rgba(255, 92, 53, 0.78);
+      box-shadow: 0 0 10px rgba(255, 92, 53, 0.7);
+    }
+
+    @keyframes edgePulse {
+      0%, 100% { opacity: 0.35; box-shadow: 0 0 4px rgba(255, 92, 53, 0.3); }
+      50% { opacity: 1; box-shadow: 0 0 14px rgba(255, 92, 53, 0.95); }
+    }
+
+    /* Hidden file input for local MP3 */
+    #localMp3Input {
+      display: none;
+    }
+
+    
+    /* Speed control micro-button on Face B top-left bezel */
+    .speed-btn {
+      position: absolute;
+      top: 6px;
+      left: 20px;
+      z-index: 15;
+      background: rgba(24, 33, 44, 0.82);
+      border: 1px solid rgba(78, 168, 199, 0.34);
+      color: rgba(168, 224, 245, 0.88);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      padding: 2px 9px;
+      border-radius: 99px;
+      transition: all 150ms ease;
+    }
+
+    .speed-btn:hover {
+      border-color: rgba(96, 198, 232, 0.72);
+      color: #F4FAFF;
+      box-shadow: 0 0 10px rgba(78, 168, 199, 0.28);
+    }
+
+    .speed-btn:active {
+      transform: translateY(1px);
+    }
+
+    .speed-btn.boosted {
+      border-color: rgba(96, 198, 232, 0.72);
+      color: #7AD8F5;
+      text-shadow: 0 0 8px rgba(96, 198, 232, 0.55);
+    }
+
+    /* Bottom Hardware Face A / Face B Switcher */
+    .face-dock {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #171A20 0%, #101216 100%);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      box-shadow:
+        0 8px 20px rgba(0, 0, 0, 0.65),
+        inset 0 1px 1px rgba(255, 255, 255, 0.08);
+      z-index: 25;
+    }
+
+    .face-dock-btn {
+      border: none;
+      outline: none;
+      background: transparent;
+      color: rgba(203, 213, 225, 0.45);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 7px 11px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 180ms ease;
+    }
+
+    .face-dock-btn:hover {
+      color: rgba(226, 232, 240, 0.8);
+    }
+
+    .face-dock-btn.active-a {
+      background: linear-gradient(180deg, #24272E 0%, #191B20 100%);
+      color: #FF5C35;
+      text-shadow: 0 0 8px rgba(255, 84, 46, 0.58);
+      box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.65),
+        inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    }
+
+    .face-dock-btn.active-b {
+      background: linear-gradient(180deg, #212D3B 0%, #18212C 100%);
+      color: #60C6E8;
+      text-shadow: 0 0 8px rgba(96, 198, 232, 0.55);
+      box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.65),
+        inset 0 1px 1px rgba(120, 210, 240, 0.14);
+    }
+
+    
+    /* Recessed Hardware All-114 Surah Index Sheet */
+    .surah-sheet {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      border-radius: var(--slab-radius);
+      background: linear-gradient(155deg, #13151A 0%, #0F1115 100%);
+      border: 1px solid rgba(255, 92, 53, 0.22);
+      box-shadow: inset 1.5px 1.5px 1px rgba(255,255,255,0.09), 0 24px 54px rgba(0,0,0,0.85);
+      display: flex;
+      flex-direction: column;
+      padding: 18px 18px 14px 18px;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(10px) scale(0.985);
+      transition: opacity 200ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0ms linear 200ms;
+    }
+
+    .surah-sheet.open {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+      transition: opacity 200ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0ms linear 0ms;
+    }
+
+    .surah-sheet-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .surah-search {
+      flex: 1;
+      background: #1A1D23;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: #F1F5F9;
+      font-family: 'IBM Plex Mono', 'Inter', sans-serif;
+      font-size: 12px;
+      outline: none;
+      user-select: text;
+    }
+
+    .surah-search:focus {
+      border-color: rgba(255, 92, 53, 0.6);
+      box-shadow: 0 0 10px rgba(255, 84, 46, 0.22);
+    }
+
+    .surah-close-btn {
+      background: #1D2027;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: rgba(255, 138, 106, 0.85);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      padding: 7px 11px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    .surah-list {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding-right: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 92, 53, 0.35) transparent;
+    }
+
+    .surah-item {
+      display: grid;
+      grid-template-columns: 36px 1fr auto auto;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 11px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.025);
+      border: 1px solid rgba(255, 255, 255, 0.045);
+      color: #E2E8F0;
+      cursor: pointer;
+      text-align: left;
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+
+    .surah-item:hover {
+      background: rgba(255, 92, 53, 0.1);
+      border-color: rgba(255, 92, 53, 0.35);
+    }
+
+    .surah-item.current {
+      background: rgba(255, 92, 53, 0.14);
+      border-color: rgba(255, 92, 53, 0.52);
+    }
+
+    .surah-num {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11.5px;
+      color: #FF5C35;
+      text-shadow: 0 0 6px rgba(255, 84, 46, 0.45);
+    }
+
+    .surah-en {
+      font-size: 13px;
+      font-weight: 500;
+      color: #E2E8F0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .surah-ar {
+      font-family: 'Amiri Quran', serif;
+      font-size: 17px;
+      color: #CBD5E1;
+      direction: rtl;
+    }
+
+    .surah-meta {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      color: rgba(148, 163, 184, 0.72);
+      white-space: nowrap;
+    }
+
+    .face-dock-btn.active-s {
+      background: linear-gradient(180deg, #272226 0%, #1B181B 100%);
+      color: #FF8E6E;
+      text-shadow: 0 0 8px rgba(255, 92, 53, 0.5);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.65), inset 0 1px 1px rgba(255,255,255,0.08);
+    }
+
+    
+    .sheet-logo {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      object-fit: cover;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      flex-shrink: 0;
+    }
+
+    .mode-bar {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .mode-pill {
+      flex: 1;
+      background: #1A1D23;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 6px 8px;
+      color: rgba(203, 213, 225, 0.58);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 150ms ease;
+    }
+
+    .mode-pill.active {
+      background: rgba(255, 92, 53, 0.14);
+      border-color: rgba(255, 92, 53, 0.55);
+      color: #FF7B57;
+    }
+
+    .offline-card {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.028);
+      border: 1px solid rgba(255, 255, 255, 0.055);
+    }
+
+    .offline-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .offline-name {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: #E2E8F0;
+    }
+
+    .offline-sub {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9.5px;
+      color: rgba(148, 163, 184, 0.72);
+    }
+
+    .offline-dl-btn {
+      background: #1D222B;
+      border: 1px solid rgba(78, 168, 199, 0.42);
+      color: #7AD8F5;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      padding: 5px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .offline-dl-btn:hover {
+      background: rgba(78, 168, 199, 0.18);
+    }
+
+    .offline-dl-btn.done {
+      border-color: rgba(74, 222, 128, 0.45);
+      color: #86EFAC;
+    }
+
+    .offline-progress-track {
+      height: 3px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.07);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .offline-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #FF5C35, #60C6E8);
+      transition: width 160ms ease;
+    }
+
+    .face-dock-btn.active-o {
+      background: linear-gradient(180deg, #1E2930 0%, #151E24 100%);
+      color: #7AD8F5;
+      text-shadow: 0 0 8px rgba(96, 198, 232, 0.5);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.65), inset 0 1px 1px rgba(120,210,240,0.12);
+    }
+
+    /* Mobile full-viewport preservation */
+    @media (max-width: 560px) {
+      .stage {
+        padding: 10px 18px 12px 10px;
+        gap: 10px;
+      }
+      .slab-shell {
+        width: calc(100vw - 32px);
+        height: min(calc(100vh - 76px), calc((100vw - 32px) * 1.366));
+        max-width: none;
+      }
+    }

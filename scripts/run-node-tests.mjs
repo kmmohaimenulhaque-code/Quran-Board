@@ -146,10 +146,23 @@ test('Uploaded logo icons, Opus offline pack builder, and GitHub Actions workflo
     'src-tauri/icons/icon.ico',
     'src-tauri/icons/icon.png',
     'scripts/build-offline-packs.mjs',
-    '.github/workflows/release-offline.yml'
+    '.github/workflows/release-offline.yml',
+    'src-tauri/build.rs',
+    'public/audio-packs/.gitkeep'
   ]) {
     assert.ok(fs.existsSync(path.join(root, rel)), `Missing required file: ${rel}`);
   }
+});
+
+
+test('package.json defines "tauri" script and @types/node, and workflow builds Desktop + Android + iOS', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  assert.equal(pkg.scripts.tauri, 'tauri');
+  assert.ok(pkg.devDependencies['@types/node']);
+  const wf = fs.readFileSync(path.join(root, '.github/workflows/release-offline.yml'), 'utf8');
+  assert.ok(wf.includes('build-android:'));
+  assert.ok(wf.includes('build-ios:'));
+  assert.ok(wf.includes('build-offline-audio-packs:'));
 });
 
 console.log(`\nALL ${passed}/${passed} TESTS PASSED.`);

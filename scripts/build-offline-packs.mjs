@@ -17,6 +17,8 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import dns from 'node:dns';
+dns.setDefaultResultOrder('ipv4first');
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -82,9 +84,20 @@ async function downloadAndCompressAyah(reciter, surahId, ayahNum, outDir) {
 
   const url = `https://everyayah.com/data/${reciter.everyAyahDir}/${key}.mp3`;
   const tmpMp3 = path.join(outDir, `${key}.tmp.mp3`);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  await fs.writeFile(tmpMp3, Buffer.from(await res.arrayBuffer()));
+  let lastErr;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(25000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      await fs.writeFile(tmpMp3, Buffer.from(await res.arrayBuffer()));
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 800 * attempt));
+    }
+  }
+  if (lastErr) throw lastErr;
   try {
     const durationMs = await transcodeToSmallestVoice(tmpMp3, finalPath);
     return { verseKey: `${surahId}:${ayahNum}`, file: `${key}.${ext}`, durationMs };

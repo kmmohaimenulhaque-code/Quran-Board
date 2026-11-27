@@ -1,4 +1,4 @@
-name: Publish Complete Ready-to-Listen Offline Quran Instrument
+name: Publish Complete Offline Quran Instrument (Desktop + Android + iOS + PWA + Opus Packs)
 
 on:
   push:
@@ -6,12 +6,8 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      reciters:
-        description: 'Reciter slugs to download & compress (all or comma-separated e.g. 02-alafasy,06-dosari)'
-        required: true
-        default: 'all'
       audio_format:
-        description: 'Compression format (opus = smallest ~260MB/reciter, m4a = universal iOS+Desktop)'
+        description: 'Compression format (opus = smallest ~260MB/reciter, m4a = universal)'
         required: true
         default: 'opus'
 
@@ -28,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
       - run: npm ci
       - run: npm run test:node
@@ -36,7 +32,7 @@ jobs:
       - run: npm run build
 
   # ---------------------------------------------------------------------------
-  # JOB 2: Generate 604-Page Uthmani Mushaf + Download & Compress Offline Audio Packs
+  # JOB 2: Download & Compress Full 114-Surah Offline Audio Packs (24kbps Mono Opus)
   # ---------------------------------------------------------------------------
   build-offline-audio-packs:
     needs: verify-and-test
@@ -54,30 +50,29 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
-      - name: Install FFmpeg & Zstd
+      - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg zip
       - run: npm ci
       - name: Download & Compress Full 114 Surahs (24kbps Mono Opus)
         run: |
           FORMAT="${{ github.event.inputs.audio_format || 'opus' }}"
           node scripts/build-offline-packs.mjs --reciters=${{ matrix.reciter }} --format=$FORMAT --concurrency=8
-      - name: Archive Compressed Reciter Pack
+      - name: Package Reciter Pack
         run: |
           mkdir -p release-packs
           cd public/audio-packs
           zip -r -0 "../../release-packs/quran-pack-${{ matrix.reciter }}.zip" "${{ matrix.reciter }}"
           ls -lh "../../release-packs/quran-pack-${{ matrix.reciter }}.zip"
-      - name: Upload Reciter Pack Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: pack-${{ matrix.reciter }}
           path: release-packs/quran-pack-${{ matrix.reciter }}.zip
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # JOB 3: Build Cross-Platform Desktop Apps (Windows, macOS, Linux) + Offline PWA
+  # JOB 3: Native Desktop (Windows, macOS, Linux) + Offline PWA
   # ---------------------------------------------------------------------------
   build-desktop-and-pwa:
     needs: verify-and-test
@@ -96,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux Tauri Dependencies
@@ -105,9 +100,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
-      - name: Bundle Complete 604-Page Madani Mushaf Text Offline
+      - name: Bundle All 604 Madani Mushaf Pages Offline
         run: npm run generate:mushaf
-      - name: Build Offline PWA Bundle (Linux runner)
+      - name: Build Offline PWA Zip (Linux runner)
         if: matrix.os == 'ubuntu-22.04'
         run: |
           npm run build
@@ -118,35 +113,109 @@ jobs:
           name: pwa-offline-bundle
           path: quran-instrument-pwa-offline.zip
           retention-days: 7
-      - name: Build Native Tauri v2 Installers
+      - name: Build Native Tauri v2 Desktop Installers
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Quran Instrument ${{ github.ref_name }} (Complete Offline Edition)'
-          releaseBody: 'Ready-to-listen Tactile Quran Recitation Instrument with all 114 Surahs (6,236 verses), Qari Muhammad Shamim, Alafasy, Husary, Minshawy, Abdul Basit, and Yasser Al-Dosari compressed 24kbps Mono Opus offline packs.'
+          tagName: ${{ github.ref_name || 'v1.0.1' }}
+          releaseName: 'Quran Instrument ${{ github.ref_name || ''v1.0.1'' }} (Complete Offline Edition)'
+          releaseBody: 'Cross-platform Tactile Quran Recitation Instrument (Windows, macOS, Linux, Android APK, iOS IPA, PWA) with all 114 Surahs and 6 Reciters including Qari Muhammad Shamim and Yasser Al-Dosari.'
           releaseDraft: false
           prerelease: false
 
   # ---------------------------------------------------------------------------
-  # JOB 4: Attach All Compressed Offline Reciter Packs + Offline PWA to GitHub Release
+  # JOB 4: Native Android Build (.apk)
   # ---------------------------------------------------------------------------
-  publish-offline-packs-to-release:
-    needs: [build-offline-audio-packs, build-desktop-and-pwa]
+  build-android:
+    needs: verify-and-test
     runs-on: ubuntu-latest
     steps:
-      - name: Download All Built Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android NDK & Build Tools
+        run: |
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> $GITHUB_ENV
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - run: npm ci
+      - run: npm run generate:mushaf
+      - name: Initialize & Build Android APK (Tauri v2)
+        run: |
+          npx tauri android init --ci
+          npx tauri android build --apk --target aarch64
+          mkdir -p android-out
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} android-out/quran-instrument-android-arm64.apk \;
+          ls -lh android-out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: android-out/quran-instrument-android-arm64.apk
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # JOB 5: Native iOS Build (Unsigned .ipa ready for AltStore / SideStore / Xcode)
+  # ---------------------------------------------------------------------------
+  build-ios:
+    needs: verify-and-test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - run: npm ci
+      - run: npm run generate:mushaf
+      - name: Initialize & Build Unsigned iOS IPA (Tauri v2 + Xcode)
+        run: |
+          npx tauri ios init --ci
+          npm run build
+          cd src-tauri/gen/apple
+          xcodebuild -scheme quran-instrument_iOS -configuration release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build CONFIGURATION_BUILD_DIR="$PWD/build-ios"
+          mkdir -p Payload
+          cp -r build-ios/*.app Payload/
+          zip -r "$GITHUB_WORKSPACE/quran-instrument-ios-unsigned.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/quran-instrument-ios-unsigned.ipa"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: quran-instrument-ios-unsigned.ipa
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # JOB 6: Attach Android APK, iOS IPA, Offline PWA & All 5 Compressed Opus Packs to Release
+  # ---------------------------------------------------------------------------
+  publish-all-assets-to-release:
+    needs: [build-offline-audio-packs, build-desktop-and-pwa, build-android, build-ios]
+    if: always() && (needs.build-desktop-and-pwa.result == 'success' || needs.build-android.result == 'success' || needs.build-offline-audio-packs.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
-      - name: Publish Compressed Offline Audio Packs & PWA to GitHub Release
+      - name: Publish All Offline Packs, Android APK, iOS IPA & PWA to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || 'v1.0.0-offline' }}
-          name: 'Quran Instrument Offline Release (${{ github.ref_name || ''v1.0.0-offline'' }})'
+          tag_name: ${{ github.ref_name || 'v1.0.1' }}
+          name: 'Quran Instrument Offline Release (${{ github.ref_name || ''v1.0.1'' }})'
           files: |
             release-assets/*.zip
+            release-assets/*.apk
+            release-assets/*.ipa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

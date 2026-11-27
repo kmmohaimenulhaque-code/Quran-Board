@@ -12,6 +12,7 @@
     "generate:mushaf": "tsx scripts/generate-mushaf-data.ts",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri": "tauri",
     "build:packs": "node scripts/build-offline-packs.mjs"
   },
   "dependencies": {
@@ -24,7 +25,6 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.2.7",
-    "@types/node": "^26.6.11",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
@@ -32,6 +32,7 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.6",
     "vite-plugin-pwa": "^0.21.1",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.2"
   }
 }

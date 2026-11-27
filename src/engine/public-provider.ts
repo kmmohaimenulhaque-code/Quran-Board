@@ -1,6 +1,7 @@
 import type { AyahBundle, Reciter, VerseEntry } from '../core/types';
 import type { RecitationProvider } from './provider';
 import { synthesizeWordSegments } from '../core/sync-resolver';
+import { BISMILLAH_TEXT, SHAMIM_BISMILLAH_CLIP } from '../core/bismillah';
 import type { PlatformBridge } from '../platform/bridge';
 import bundledPages from '../assets/data/mushaf-604.json';
 import shamimTimings from '../assets/data/shamim-baqarah-timings.json';
@@ -20,6 +21,18 @@ export class PublicRecitationProvider implements RecitationProvider {
     for (const [pageStr, verses] of Object.entries(BUNDLED_MAP)) {
       this.pageCache.set(Number(pageStr), verses);
     }
+  }
+
+  /**
+   * Proactively caches 001001.mp3 (Bismillah) for every EveryAyah reciter
+   * so Surah openings recite Bismillah aloud instantaneously even offline.
+   */
+  async cacheAllReciterBismillahs(reciters: Reciter[]): Promise<void> {
+    await Promise.allSettled(
+      reciters
+        .filter((r) => r.providerMode === 'everyayah')
+        .map((r) => this.bridge.cacheAudio(`https://everyayah.com/data/${r.everyAyahDir}/001001.mp3`))
+    );
   }
 
   async getPageVerses(page: number): Promise<VerseEntry[]> {
@@ -46,6 +59,39 @@ export class PublicRecitationProvider implements RecitationProvider {
     reciter: Reciter,
     localOverrideUrl?: string | null
   ): Promise<AyahBundle> {
+    if (verse.isBismillah) {
+      if (reciter.providerMode === 'local-baqarah') {
+        const durationMs = SHAMIM_BISMILLAH_CLIP.endMs - SHAMIM_BISMILLAH_CLIP.startMs;
+        return {
+          verseKey: verse.verseKey,
+          surah: verse.surah,
+          ayah: 0,
+          isBismillah: true,
+          reciterId: reciter.id,
+          audioUrl: localOverrideUrl || reciter.localAudioPath || '/audio/baqarah-preview.mp3',
+          clipStartSec: SHAMIM_BISMILLAH_CLIP.startMs / 1000,
+          clipEndSec: SHAMIM_BISMILLAH_CLIP.endMs / 1000,
+          durationMs,
+          words: synthesizeWordSegments(BISMILLAH_TEXT, durationMs, 0)
+        };
+      }
+      const bismillahUrl = `https://everyayah.com/data/${reciter.everyAyahDir}/001001.mp3`;
+      const audioUrl = await this.bridge.cacheAudio(bismillahUrl);
+      const provisionalMs = 5200;
+      return {
+        verseKey: verse.verseKey,
+        surah: verse.surah,
+        ayah: 0,
+        isBismillah: true,
+        reciterId: reciter.id,
+        audioUrl,
+        clipStartSec: 0,
+        clipEndSec: null,
+        durationMs: provisionalMs,
+        words: synthesizeWordSegments(BISMILLAH_TEXT, provisionalMs, 0)
+      };
+    }
+
     if (reciter.providerMode === 'local-baqarah' && verse.surah === 2) {
       const seg = SHAMIM_MAP[verse.verseKey];
       if (seg) {

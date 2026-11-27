@@ -167,4 +167,46 @@ test('package.json defines "tauri" script and @types/node, and workflow builds D
   assert.ok(wf.includes('build-offline-audio-packs:'));
 });
 
+
+test('WebKitGTK 3D overlay fix (.slab-3d-stage), Android apksigner, and iOS tauri ios build are configured', () => {
+  const chassis = fs.readFileSync(path.join(root, 'src/ui/Chassis.tsx'), 'utf8');
+  assert.ok(chassis.includes('slab-3d-stage'));
+  const wf = fs.readFileSync(path.join(root, '.github/workflows/release-offline.yml'), 'utf8');
+  assert.ok(wf.includes('apksigner'));
+  assert.ok(wf.includes('tauri icon'));
+  assert.ok(wf.includes('tauri ios build --ci'));
+});
+
+
+test('Bismillah rules: strip API prefix, inject before Ayah 1 (except Surah 1 & 9), handle Page 604 multi-Surah', () => {
+  const BIS = 'بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ';
+  const stripBis = (txt, su, ay) =>
+    (su === 1 || su === 9 || ay !== 1)
+      ? txt.trim()
+      : txt.replace(/^\s*بِسْمِ\s+ٱ?للَّهِ\s+ٱ?لرَّحْمَٰنِ\s+ٱ?لرَّحِيمِ\s*/u, '').trim();
+  const expandBis = (vs) => {
+    const out = [];
+    for (const v of vs) {
+      if (v.ayah === 1 && v.surah !== 1 && v.surah !== 9) {
+        out.push({ verseKey: `${v.surah}:0`, surah: v.surah, ayah: 0, isBismillah: true, textUthmani: BIS });
+        out.push({ ...v, textUthmani: stripBis(v.textUthmani, v.surah, v.ayah) });
+      } else out.push(v);
+    }
+    return out;
+  };
+  assert.equal(stripBis(`${BIS} يسٓ`, 36, 1), 'يسٓ');
+  assert.equal(expandBis(mushaf['1']).some((v) => v.isBismillah), false);
+  assert.equal(expandBis([{ verseKey: '9:1', surah: 9, ayah: 1, textUthmani: 'بَرَآءَةٌ' }]).length, 1);
+  assert.equal(expandBis(mushaf['2'])[0].verseKey, '2:0');
+  assert.deepEqual(
+    expandBis(mushaf['604']).filter((v) => v.isBismillah).map((v) => v.verseKey),
+    ['112:0', '113:0', '114:0']
+  );
+  assert.ok(fs.existsSync(path.join(root, 'src/core/bismillah.ts')));
+  assert.ok(fs.existsSync(path.join(root, 'src/core/__tests__/bismillah.test.ts')));
+  const prov = fs.readFileSync(path.join(root, 'src/engine/public-provider.ts'), 'utf8');
+  assert.ok(prov.includes('cacheAllReciterBismillahs'));
+  assert.ok(prov.includes('001001.mp3'));
+});
+
 console.log(`\nALL ${passed}/${passed} TESTS PASSED.`);

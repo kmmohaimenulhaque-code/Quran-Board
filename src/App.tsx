@@ -1,8 +1,9 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import recitersJson from './assets/data/reciters.json';
 import surahsJson from './assets/data/surahs-114.json';
 import type { Reciter } from './core/types';
 import { formatTelemetryRange, slicePageVerses } from './core/mushaf-index';
+import { expandVersesWithBismillah } from './core/bismillah';
 import { useInstrumentStore } from './core/state-machine';
 import { DualBufferAudioDeck } from './engine/audio-deck';
 import { PublicRecitationProvider } from './engine/public-provider';
@@ -35,6 +36,10 @@ export const App: React.FC = () => {
 
   const bridge = useMemo(() => new WebPlatformAdapter(), []);
   const provider = useMemo(() => new PublicRecitationProvider(bridge), [bridge]);
+
+  useEffect(() => {
+    void provider.cacheAllReciterBismillahs(RECITERS);
+  }, [provider]);
   const deckRef = useRef<DualBufferAudioDeck | null>(null);
 
   const showPeek = useCallback((msg: string, isErr = false) => {
@@ -80,7 +85,7 @@ export const App: React.FC = () => {
     s.beginPrefetch();
     try {
       const verses = await provider.getPageVerses(s.page);
-      const selected = slicePageVerses(verses, s.rangeStart, s.rangeEnd);
+      const selected = expandVersesWithBismillah(slicePageVerses(verses, s.rangeStart, s.rangeEnd));
       const reciter = RECITERS[s.reciterId - 1] ?? RECITERS[0];
       const bundles = await Promise.all(
         selected.map((v) => provider.buildAyahBundle(v, reciter, localMp3Url))
@@ -161,7 +166,9 @@ export const App: React.FC = () => {
 
   const currentReciter = RECITERS[store.reciterId - 1] ?? RECITERS[0];
   const verseSpan = formatTelemetryRange(
-    store.bundles.map((b) => ({ verseKey: b.verseKey, surah: b.surah, ayah: b.ayah, textUthmani: '' }))
+    store.bundles
+      .filter((b) => !b.isBismillah)
+      .map((b) => ({ verseKey: b.verseKey, surah: b.surah, ayah: b.ayah, textUthmani: '' }))
   );
   const telemetryLeft = `PASS ${String(store.currentPass).padStart(2, '0')}/${String(
     store.repetition

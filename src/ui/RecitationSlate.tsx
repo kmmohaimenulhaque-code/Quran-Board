@@ -89,9 +89,15 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
                       </React.Fragment>
                     );
                   })}
-                  <span className={`ayah-medallion ${medallionLit ? 'lit' : ''}`}>
-                    ﴿{toArabicDigits(bundle.ayah)}﴾
-                  </span>{' '}
+                  {bundle.isBismillah ? (
+                    <br />
+                  ) : (
+                    <>
+                      <span className={`ayah-medallion ${medallionLit ? 'lit' : ''}`}>
+                        ﴿{toArabicDigits(bundle.ayah)}﴾
+                      </span>{' '}
+                    </>
+                  )}
                 </React.Fragment>
               );
             })}

@@ -31,7 +31,9 @@ export const Chassis: React.FC<ChassisProps> = ({
 }) => (
   <div className="stage">
     <div className="slab-shell">
-      <div className={`chassis-assembly ${flipped ? 'flipped' : ''}`}>{children}</div>
+      <div className="slab-3d-stage">
+        <div className={`chassis-assembly ${flipped ? 'flipped' : ''}`}>{children}</div>
+      </div>
       {overlays}
       <button
         type="button"

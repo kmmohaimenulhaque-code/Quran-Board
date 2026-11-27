@@ -127,7 +127,7 @@ jobs:
           prerelease: false
 
   # ---------------------------------------------------------------------------
-  # JOB 4: Native Android Build (.apk)
+  # JOB 4: Signed Universal Native Android APK (arm64 + armv7 + Custom Logo)
   # ---------------------------------------------------------------------------
   build-android:
     needs: verify-and-test
@@ -154,25 +154,31 @@ jobs:
           echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
       - run: npm ci
       - run: npm run generate:mushaf
-      - name: Initialize & Build Android APK (Tauri v2)
+      - name: Initialize Android, Apply Custom Logo, Build & Sign Universal APK
         run: |
           npx tauri android init --ci
-          npx tauri android build --apk --target aarch64
+          npx tauri icon public/icons/icon-512.png
+          npx tauri android build --apk --target aarch64 --target armv7
           mkdir -p android-out
-          APK_FILE=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
-          cp "$APK_FILE" android-out/quran-instrument-android-arm64.apk
-          ls -lh android-out/
+          RAW_APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          echo "Signing APK: $RAW_APK"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+          "$BUILD_TOOLS/zipalign" -v -p 4 "$RAW_APK" android-out/aligned.apk
+          keytool -genkeypair -v -keystore android-out/release.keystore -alias quran_instrument             -keyalg RSA -keysize 2048 -validity 10000             -storepass quran123456 -keypass quran123456             -dname "CN=Quran Instrument, OU=Mobile, O=QuranInstrument, L=Dhaka, S=BD, C=BD"
+          "$BUILD_TOOLS/apksigner" sign --ks android-out/release.keystore             --ks-key-alias quran_instrument --ks-pass pass:quran123456 --key-pass pass:quran123456             --out android-out/quran-instrument-android-universal.apk android-out/aligned.apk
+          "$BUILD_TOOLS/apksigner" verify --verbose android-out/quran-instrument-android-universal.apk
+          ls -lh android-out/quran-instrument-android-universal.apk
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: android-out/quran-instrument-android-arm64.apk
+          path: android-out/quran-instrument-android-universal.apk
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # JOB 5: Native iOS Build (Unsigned .ipa ready for AltStore / SideStore / Xcode)
+  # JOB 5: Native iOS Build (Unsigned .ipa via Tauri v2 CLI + Custom Logo)
   # ---------------------------------------------------------------------------
   build-ios:
     needs: verify-and-test
@@ -188,19 +194,37 @@ jobs:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
       - run: npm ci
       - run: npm run generate:mushaf
-      - name: Install XcodeGen & Build Unsigned iOS IPA (Tauri v2 + Xcode)
+      - name: Initialize iOS, Apply Logo, Patch Unsigned Signing & Build IPA via Tauri CLI
         run: |
           brew install xcodegen || true
           npx tauri ios init --ci --skip-targets-install
-          npm run build
-          cd src-tauri/gen/apple
-          PROJ=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-          SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{getline; gsub(/^[ 	]+/, ""); print; exit}')
-          echo "Building project=$PROJ scheme=$SCHEME"
-          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build CONFIGURATION_BUILD_DIR="$PWD/build-ios"
-          mkdir -p Payload
-          cp -r build-ios/*.app Payload/
-          zip -r "$GITHUB_WORKSPACE/quran-instrument-ios-unsigned.ipa" Payload
+          npx tauri icon public/icons/icon-512.png
+          python3 - << 'PYEOF'
+          from pathlib import Path
+          yml = Path("src-tauri/gen/apple/project.yml")
+          txt = yml.read_text(encoding="utf-8")
+          if "CODE_SIGNING_ALLOWED" not in txt:
+              txt = txt.replace(
+                  "      base:",
+                  "      base:
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: """,
+                  1
+              )
+              yml.write_text(txt, encoding="utf-8")
+          PYEOF
+          (cd src-tauri/gen/apple && xcodegen generate)
+          npx tauri ios build --ci || true
+          APP_PATH=$(find src-tauri/gen/apple/build -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: .app bundle not produced"
+            exit 1
+          fi
+          echo "Found built iOS .app: $APP_PATH"
+          mkdir -p ios-ipa-stage/Payload
+          cp -r "$APP_PATH" ios-ipa-stage/Payload/
+          (cd ios-ipa-stage && zip -r "$GITHUB_WORKSPACE/quran-instrument-ios-unsigned.ipa" Payload)
           ls -lh "$GITHUB_WORKSPACE/quran-instrument-ios-unsigned.ipa"
       - uses: actions/upload-artifact@v4
         with:

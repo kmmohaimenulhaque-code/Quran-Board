@@ -30,7 +30,7 @@ interface SevenSegmentProps {
   onClick?: () => void;
 }
 
-export const SevenSegment: React.FC<SevenSegmentProps> = ({
+export const SevenSegment: React.FC<SevenSegmentProps> = React.memo(({
   value,
   minDigits = 2,
   focused = false,
@@ -56,7 +56,6 @@ export const SevenSegment: React.FC<SevenSegmentProps> = ({
                 key={sIdx}
                 d={d}
                 fill={mask[sIdx] ? '#FF542E' : 'rgba(255, 84, 46, 0.065)'}
-                style={mask[sIdx] ? { filter: 'drop-shadow(0 0 6px rgba(255, 68, 26, 0.72))' } : undefined}
               />
             ))}
           </svg>
@@ -64,14 +63,10 @@ export const SevenSegment: React.FC<SevenSegmentProps> = ({
       })}
     </div>
   );
-};
+});
 
-export const SevenSegmentHyphen: React.FC = () => (
+export const SevenSegmentHyphen: React.FC = React.memo(() => (
   <svg className="seg-hyphen" viewBox="0 0 18 48" aria-hidden="true">
-    <path
-      d="M 3 24 L 5.2 21.8 L 12.8 21.8 L 15 24 L 12.8 26.2 L 5.2 26.2 Z"
-      fill="#FF542E"
-      style={{ filter: 'drop-shadow(0 0 6px rgba(255, 68, 26, 0.68))' }}
-    />
+    <path d="M 3 24 L 5.2 21.8 L 12.8 21.8 L 15 24 L 12.8 26.2 L 5.2 26.2 Z" fill="#FF542E" />
   </svg>
-);
+));

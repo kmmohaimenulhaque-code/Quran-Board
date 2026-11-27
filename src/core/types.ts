@@ -11,6 +11,7 @@ export interface Reciter {
 
 export interface VerseEntry {
   verseKey: string;
+  isBismillah?: boolean;
   surah: number;
   ayah: number;
   textUthmani: string;
@@ -29,7 +30,8 @@ export interface WordSegment {
 }
 
 export interface AyahBundle {
-  verseKey: string;    // e.g. "2:265"
+  verseKey: string;
+  isBismillah?: boolean;    // e.g. "2:265"
   surah: number;
   ayah: number;
   reciterId: number;

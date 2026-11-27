@@ -149,6 +149,8 @@ async function main() {
     await fs.mkdir(outDir, { recursive: true });
 
     const jobs = [];
+    // Always include 001001 (Bismillah) in every reciter pack so Surah openings recite aloud offline
+    if (!surahFilter.has(1)) jobs.push({ surahId: 1, ayahNum: 1 });
     for (const s of surahs) {
       if (!surahFilter.has(s.id)) continue;
       for (let a = 1; a <= s.ayahs; a++) jobs.push({ surahId: s.id, ayahNum: a });

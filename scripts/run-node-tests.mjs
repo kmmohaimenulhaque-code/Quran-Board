@@ -148,7 +148,9 @@ test('Uploaded logo icons, Opus offline pack builder, and GitHub Actions workflo
     'scripts/build-offline-packs.mjs',
     '.github/workflows/release-offline.yml',
     'src-tauri/build.rs',
-    'public/audio-packs/.gitkeep'
+    'public/audio-packs/.gitkeep',
+    'src/ui/OfflineDrawer.tsx',
+    'src/ui/SurahDrawer.tsx'
   ]) {
     assert.ok(fs.existsSync(path.join(root, rel)), `Missing required file: ${rel}`);
   }

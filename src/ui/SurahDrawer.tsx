@@ -14,14 +14,18 @@ const SURAHS = surahsJson as SurahMeta[];
 interface SurahDrawerProps {
   open: boolean;
   currentPage: number;
-  onSelectPage: (page: number) => void;
+  playbackMode: 'page' | 'surah';
+  onChangeMode: (mode: 'page' | 'surah') => void;
+  onSelectSurah: (surahId: number, startPage: number) => void;
   onClose: () => void;
 }
 
 export const SurahDrawer: React.FC<SurahDrawerProps> = ({
   open,
   currentPage,
-  onSelectPage,
+  playbackMode,
+  onChangeMode,
+  onSelectSurah,
   onClose
 }) => {
   const [query, setQuery] = useState('');
@@ -46,6 +50,7 @@ export const SurahDrawer: React.FC<SurahDrawerProps> = ({
   return (
     <div className={`surah-sheet ${open ? 'open' : ''}`} aria-label="All 114 Surahs">
       <div className="surah-sheet-head">
+        <img src="/favicon.png" alt="Logo" className="sheet-logo" />
         <input
           type="text"
           className="surah-search"
@@ -57,6 +62,22 @@ export const SurahDrawer: React.FC<SurahDrawerProps> = ({
           ESC
         </button>
       </div>
+      <div className="mode-bar" role="group" aria-label="Playback Scope Mode">
+        <button
+          type="button"
+          className={`mode-pill ${playbackMode === 'page' ? 'active' : ''}`}
+          onClick={() => onChangeMode('page')}
+        >
+          Page Range Mode
+        </button>
+        <button
+          type="button"
+          className={`mode-pill ${playbackMode === 'surah' ? 'active' : ''}`}
+          onClick={() => onChangeMode('surah')}
+        >
+          Full Surah Mode
+        </button>
+      </div>
       <div className="surah-list">
         {filtered.map((s) => (
           <button
@@ -64,7 +85,7 @@ export const SurahDrawer: React.FC<SurahDrawerProps> = ({
             type="button"
             className={`surah-item ${s.id === activeSurahId ? 'current' : ''}`}
             onClick={() => {
-              onSelectPage(s.startPage);
+              onSelectSurah(s.id, s.startPage);
               onClose();
             }}
           >

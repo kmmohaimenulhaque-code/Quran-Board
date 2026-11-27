@@ -98,7 +98,9 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 file
+          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> $GITHUB_ENV
+          echo "NO_STRIP=true" >> $GITHUB_ENV
       - run: npm ci
       - name: Bundle All 604 Madani Mushaf Pages Offline
         run: npm run generate:mushaf
@@ -140,14 +142,19 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android NDK & Build Tools
+      - name: Configure Pre-installed Android SDK & Install NDK
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> $GITHUB_ENV
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> $GITHUB_ENV
+          SDKMGR="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
+          echo "NDK_HOME=$SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+          targets: aarch64-linux-android
       - run: npm ci
       - run: npm run generate:mushaf
       - name: Initialize & Build Android APK (Tauri v2)
@@ -155,7 +162,8 @@ jobs:
           npx tauri android init --ci
           npx tauri android build --apk --target aarch64
           mkdir -p android-out
-          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} android-out/quran-instrument-android-arm64.apk \;
+          APK_FILE=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          cp "$APK_FILE" android-out/quran-instrument-android-arm64.apk
           ls -lh android-out/
       - uses: actions/upload-artifact@v4
         with:
@@ -180,12 +188,16 @@ jobs:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
       - run: npm ci
       - run: npm run generate:mushaf
-      - name: Initialize & Build Unsigned iOS IPA (Tauri v2 + Xcode)
+      - name: Install XcodeGen & Build Unsigned iOS IPA (Tauri v2 + Xcode)
         run: |
-          npx tauri ios init --ci
+          brew install xcodegen || true
+          npx tauri ios init --ci --skip-targets-install
           npm run build
           cd src-tauri/gen/apple
-          xcodebuild -scheme quran-instrument_iOS -configuration release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build CONFIGURATION_BUILD_DIR="$PWD/build-ios"
+          PROJ=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+          SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{getline; gsub(/^[ 	]+/, ""); print; exit}')
+          echo "Building project=$PROJ scheme=$SCHEME"
+          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build CONFIGURATION_BUILD_DIR="$PWD/build-ios"
           mkdir -p Payload
           cp -r build-ios/*.app Payload/
           zip -r "$GITHUB_WORKSPACE/quran-instrument-ios-unsigned.ipa" Payload

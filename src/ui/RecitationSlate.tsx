@@ -15,7 +15,6 @@ interface RecitationSlateProps {
   telemetryRight: string;
   playbackRate: number;
   onCycleSpeed: () => void;
-  onTogglePause: () => void;
   onStopAndFlip: () => void;
 }
 
@@ -28,19 +27,14 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
   telemetryRight,
   playbackRate,
   onCycleSpeed,
-  onTogglePause,
   onStopAndFlip
 }) => {
   const frameRef = useRef<HTMLDivElement>(null);
   const [rowHeight, setRowHeight] = useState(74);
-  const longPressTimer = useRef<number | null>(null);
-  const didLongPress = useRef(false);
 
   useEffect(() => {
     const updateMetrics = () => {
-      if (frameRef.current) {
-        setRowHeight(frameRef.current.clientHeight / 8);
-      }
+      if (frameRef.current) setRowHeight(frameRef.current.clientHeight / 8);
     };
     updateMetrics();
     window.addEventListener('resize', updateMetrics);
@@ -74,10 +68,7 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
             className="slate-words-layer"
             dir="rtl"
             lang="ar"
-            style={{
-              lineHeight: `${rowHeight.toFixed(2)}px`,
-              fontSize: `${fontSize}px`
-            }}
+            style={{ lineHeight: `${rowHeight.toFixed(2)}px`, fontSize: `${fontSize}px` }}
           >
             {bundles.map((bundle, aIdx) => {
               const medallionLit =
@@ -119,29 +110,6 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
         </span>
         <span className="telemetry-text">{telemetryRight}</span>
       </div>
-
-      <button
-        type="button"
-        className={`rim-button-mount ${phase === 'PAUSED' ? 'slate-paused' : 'slate-active'}`}
-        aria-label="Pause or resume; hold to flip back"
-        onPointerDown={(e) => {
-          e.preventDefault();
-          didLongPress.current = false;
-          longPressTimer.current = window.setTimeout(() => {
-            didLongPress.current = true;
-            onStopAndFlip();
-          }, 450);
-        }}
-        onPointerUp={() => {
-          if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
-          if (!didLongPress.current) onTogglePause();
-        }}
-        onPointerCancel={() => {
-          if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
-        }}
-      >
-        <span className="rim-led" />
-      </button>
     </section>
   );
 };

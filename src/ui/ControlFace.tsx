@@ -12,13 +12,13 @@ interface ControlFaceProps {
   repetition: number;
   bezelPeek: string | null;
   isError: boolean;
+  localMp3Loaded: boolean;
   onStepReciter: (delta: 1 | -1) => void;
   onStepPage: (delta: 1 | -1) => void;
   onStepRange: (delta: 1 | -1) => void;
   onFocusRange: (focus: RangeFocus) => void;
   onStepRepetition: (delta: 1 | -1) => void;
-  onStart: () => void;
-  prefetching: boolean;
+  onOpenMp3Slot: () => void;
 }
 
 export const ControlFace: React.FC<ControlFaceProps> = ({
@@ -30,13 +30,13 @@ export const ControlFace: React.FC<ControlFaceProps> = ({
   repetition,
   bezelPeek,
   isError,
+  localMp3Loaded,
   onStepReciter,
   onStepPage,
   onStepRange,
   onFocusRange,
   onStepRepetition,
-  onStart,
-  prefetching
+  onOpenMp3Slot
 }) => (
   <section className="slab-face face-a" aria-label="Control Deck">
     <div className="control-rows">
@@ -89,15 +89,14 @@ export const ControlFace: React.FC<ControlFaceProps> = ({
       <span className={`reciter-peek ${bezelPeek ? 'visible' : ''} ${isError ? 'error' : ''}`}>
         {bezelPeek ?? ''}
       </span>
+      <button
+        type="button"
+        className={`mp3-slot-btn ${localMp3Loaded ? 'loaded' : ''}`}
+        onClick={onOpenMp3Slot}
+        title="Load local Surah Al-Baqarah MP3"
+      >
+        {localMp3Loaded ? 'MP3 OK' : 'MP3 SLOT'}
+      </button>
     </div>
-
-    <button
-      type="button"
-      className={`rim-button-mount ${prefetching ? 'prefetching' : ''}`}
-      aria-label="Start recitation"
-      onClick={onStart}
-    >
-      <span className="rim-led" />
-    </button>
   </section>
 );

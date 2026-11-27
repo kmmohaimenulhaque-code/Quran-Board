@@ -81,6 +81,7 @@ export const App: React.FC = () => {
     setOpenDrawer('none');
     const s = useInstrumentStore.getState();
     if (s.phase !== 'IDLE') return;
+    getDeck().unlock();
     playMechanicalClick(true);
     s.beginPrefetch();
     try {

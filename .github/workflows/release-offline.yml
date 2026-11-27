@@ -102,6 +102,8 @@ jobs:
           echo "APPIMAGE_EXTRACT_AND_RUN=1" >> $GITHUB_ENV
           echo "NO_STRIP=true" >> $GITHUB_ENV
       - run: npm ci
+      - name: Sync App Version to Git Tag
+        run: node scripts/sync-version.mjs
       - name: Bundle All 604 Madani Mushaf Pages Offline
         run: npm run generate:mushaf
       - name: Build Offline PWA Zip (Linux runner)
@@ -156,6 +158,7 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi
       - run: npm ci
+      - run: node scripts/sync-version.mjs
       - run: npm run generate:mushaf
       - name: Initialize Android, Apply Custom Logo, Build & Sign Universal APK
         run: |
@@ -193,6 +196,7 @@ jobs:
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
       - run: npm ci
+      - run: node scripts/sync-version.mjs
       - run: npm run generate:mushaf
       - name: Initialize iOS, Apply Logo, Patch Unsigned Signing & Build IPA via Tauri CLI
         run: |

@@ -8,11 +8,10 @@ export interface DeckCallbacks {
   onError?: (message: string) => void;
 }
 
-type MetadataStatus = 'ready' | 'error' | 'timeout';
-
 /**
- * Dual-buffer gapless HTML5 Audio deck with synchronous user-gesture unlock
- * and strict offline-error detection (never fakes silent word animations when audio is uncached).
+ * Dual-buffer gapless HTML5 Audio deck.
+ * v1.2.2: Never blocks play() behind a 4.5s waitForMetadata timeout (fixes Linux WebKitGTK
+ * GStreamer inter-ayah stalls) and syncs real duration dynamically when metadata arrives.
  */
 export class DualBufferAudioDeck {
   private activeAudio = new Audio();
@@ -65,38 +64,30 @@ export class DualBufferAudioDeck {
   }
 
   preloadNext(bundle: AyahBundle | undefined): void {
-    if (!bundle) return;
-    if (!this.standbyAudio.src || !this.standbyAudio.src.endsWith(bundle.audioUrl)) {
+    if (!bundle || !bundle.audioUrl) return;
+    if (this.standbyAudio.src !== bundle.audioUrl && !this.standbyAudio.src.endsWith(bundle.audioUrl)) {
       this.standbyAudio.src = bundle.audioUrl;
       this.standbyAudio.load();
     }
   }
 
-  private waitForMetadata(audio: HTMLAudioElement): Promise<MetadataStatus> {
-    if (audio.readyState >= 1) return Promise.resolve('ready');
-    if (audio.error) return Promise.resolve('error');
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = (status: MetadataStatus) => {
-        if (settled) return;
-        settled = true;
-        audio.removeEventListener('loadedmetadata', onReady);
-        audio.removeEventListener('canplay', onReady);
-        audio.removeEventListener('error', onErr);
-        window.clearTimeout(timer);
-        resolve(status);
-      };
-      const onReady = () => finish('ready');
-      const onErr = () => finish('error');
-      audio.addEventListener('loadedmetadata', onReady, { once: true });
-      audio.addEventListener('canplay', onReady, { once: true });
-      audio.addEventListener('error', onErr, { once: true });
-      const timer = window.setTimeout(() => finish('timeout'), 4500);
-    });
-  }
-
   private isRemoteUrl(url: string): boolean {
     return /^https?:\/\//i.test(url);
+  }
+
+  private syncDurationFromAudio(audio: HTMLAudioElement, bundle: AyahBundle): void {
+    if (
+      (bundle.clipEndSec === null || bundle.clipEndSec === undefined) &&
+      Number.isFinite(audio.duration) &&
+      audio.duration > 0
+    ) {
+      const realMs = Math.round(audio.duration * 1000);
+      if (Math.abs(realMs - bundle.durationMs) > 250) {
+        bundle.durationMs = realMs;
+        const text = bundle.words.map((w) => w.textUthmani).join(' ');
+        bundle.words = synthesizeWordSegments(text, realMs, 0);
+      }
+    }
   }
 
   async play(bundle: AyahBundle, nextBundle?: AyahBundle): Promise<void> {
@@ -105,7 +96,7 @@ export class DualBufferAudioDeck {
     this.lastWordIndex = -1;
     this.playing = true;
 
-    // Fast offline guard: if URL is uncached remote https:// and device is offline, fail cleanly immediately
+    // Fast offline guard: uncached remote https:// while offline fails cleanly immediately
     if (
       typeof navigator !== 'undefined' &&
       navigator.onLine === false &&
@@ -121,86 +112,88 @@ export class DualBufferAudioDeck {
 
     const reuseSameClip =
       Boolean(this.activeAudio.src) &&
-      this.activeAudio.src.endsWith(bundle.audioUrl) &&
+      (this.activeAudio.src === bundle.audioUrl || this.activeAudio.src.endsWith(bundle.audioUrl)) &&
       (bundle.clipStartSec ?? 0) > 0;
 
     if (!reuseSameClip) {
-      if (this.standbyAudio.src && this.standbyAudio.src.endsWith(bundle.audioUrl)) {
+      const standbyMatches =
+        Boolean(this.standbyAudio.src) &&
+        (this.standbyAudio.src === bundle.audioUrl || this.standbyAudio.src.endsWith(bundle.audioUrl));
+      if (standbyMatches) {
         const tmp = this.activeAudio;
         this.activeAudio = this.standbyAudio;
         this.standbyAudio = tmp;
       } else {
         this.activeAudio.src = bundle.audioUrl;
-        this.activeAudio.load();
       }
     }
 
-    this.activeAudio.muted = false;
-    const metaStatus = await this.waitForMetadata(this.activeAudio);
-    if (!this.playing || this.currentBundle !== bundle) return;
+    const audio = this.activeAudio;
+    audio.muted = false;
+    audio.playbackRate = this.playbackRate;
 
-    if (metaStatus === 'error' || (metaStatus === 'timeout' && this.activeAudio.readyState === 0)) {
-      this.stop();
-      const msg =
-        typeof navigator !== 'undefined' && navigator.onLine === false
-          ? `Offline · S.${bundle.surah} not cached — open OFFLINE tab`
-          : `Audio unavailable for ${bundle.verseKey} — cache in OFFLINE tab`;
-      this.callbacks.onOfflineError?.(bundle, msg);
-      return;
-    }
-
-    if (
-      (bundle.clipEndSec === null || bundle.clipEndSec === undefined) &&
-      Number.isFinite(this.activeAudio.duration) &&
-      this.activeAudio.duration > 0
-    ) {
-      const realMs = Math.round(this.activeAudio.duration * 1000);
-      if (Math.abs(realMs - bundle.durationMs) > 250) {
-        bundle.durationMs = realMs;
-        const text = bundle.words.map((w) => w.textUthmani).join(' ');
-        bundle.words = synthesizeWordSegments(text, realMs, 0);
+    const applySeekAndDuration = () => {
+      if (this.currentBundle !== bundle) return;
+      this.syncDurationFromAudio(audio, bundle);
+      if ((bundle.clipStartSec ?? 0) > 0 && Math.abs(audio.currentTime - (bundle.clipStartSec ?? 0)) > 0.25) {
+        try {
+          audio.currentTime = bundle.clipStartSec ?? 0;
+        } catch {
+          // Ignore seek errors on unseekable streams
+        }
       }
+    };
+
+    if (audio.readyState >= 1) {
+      applySeekAndDuration();
+    } else {
+      audio.onloadedmetadata = () => applySeekAndDuration();
     }
 
-    this.activeAudio.onended = () => {
-      if (this.playing && (bundle.clipEndSec === null || bundle.clipEndSec === undefined)) {
+    audio.onended = () => {
+      if (this.playing && this.currentBundle === bundle && (bundle.clipEndSec === null || bundle.clipEndSec === undefined)) {
         this.stopLoop();
         this.callbacks.onAyahEnded();
       }
     };
 
-    this.activeAudio.onerror = () => {
+    audio.onerror = () => {
       if (this.playing && this.currentBundle === bundle) {
         this.stop();
-        this.callbacks.onOfflineError?.(
-          bundle,
-          `Audio interrupted for ${bundle.verseKey} — cache in OFFLINE tab`
-        );
+        const msg =
+          typeof navigator !== 'undefined' && navigator.onLine === false
+            ? `Offline · S.${bundle.surah} not cached — open OFFLINE tab`
+            : `Audio unavailable for ${bundle.verseKey} — cache in OFFLINE tab`;
+        this.callbacks.onOfflineError?.(bundle, msg);
       }
     };
 
-    try {
-      this.activeAudio.currentTime = bundle.clipStartSec ?? 0;
-    } catch {
-      // Ignore seek errors on unseekable streams
+    if ((bundle.clipStartSec ?? 0) === 0 && audio.readyState >= 1) {
+      try {
+        audio.currentTime = 0;
+      } catch {
+        // Ignore
+      }
     }
 
-    if (nextBundle && nextBundle.audioUrl !== bundle.audioUrl) {
-      this.preloadNext(nextBundle);
-    }
-
-    this.activeAudio.playbackRate = this.playbackRate;
+    // Start playback immediately without waiting for a 4.5s metadata timeout!
     try {
-      await this.activeAudio.play();
+      await audio.play();
+      if (!this.playing || this.currentBundle !== bundle) return;
+      this.syncDurationFromAudio(audio, bundle);
       this.startLoop();
+      if (nextBundle && nextBundle.audioUrl && nextBundle.audioUrl !== bundle.audioUrl) {
+        this.preloadNext(nextBundle);
+      }
     } catch (err) {
+      if (this.currentBundle !== bundle) return;
       this.stop();
       const msg =
         typeof navigator !== 'undefined' && navigator.onLine === false
           ? `Offline · S.${bundle.surah} not cached — open OFFLINE tab`
           : err instanceof Error
           ? err.message
-          : 'Audio playback blocked';
+          : `Audio unavailable for ${bundle.verseKey}`;
       this.callbacks.onOfflineError?.(bundle, msg);
     }
   }
@@ -224,6 +217,7 @@ export class DualBufferAudioDeck {
     this.stopLoop();
     this.activeAudio.onended = null;
     this.activeAudio.onerror = null;
+    this.activeAudio.onloadedmetadata = null;
     this.activeAudio.pause();
     this.standbyAudio.pause();
     this.currentBundle = null;

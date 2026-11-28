@@ -186,7 +186,13 @@ export const App: React.FC = () => {
               if (res.nextPhase === 'PLAYING') {
                 const b = latest.bundles[res.nextAyahIdx];
                 const nextB = latest.bundles[res.nextAyahIdx + 1];
-                if (b) void deckRef.current?.play(b, nextB);
+                if (b) {
+                  void (async () => {
+                    await provider.resolveBundleAudio(b);
+                    if (nextB) void provider.resolveBundleAudio(nextB).then(() => deckRef.current?.preloadNext(nextB));
+                    await deckRef.current?.play(b, nextB);
+                  })();
+                }
               }
             }, waqfMs);
             return;
@@ -202,7 +208,14 @@ export const App: React.FC = () => {
               const updated = useInstrumentStore.getState();
               const startIdx = updated.currentAyahIdx;
               const first = updated.bundles[startIdx];
-              if (first) void deckRef.current?.play(first, updated.bundles[startIdx + 1]);
+              const second = updated.bundles[startIdx + 1];
+              if (first) {
+                void (async () => {
+                  await provider.resolveBundleAudio(first);
+                  if (second) void provider.resolveBundleAudio(second).then(() => deckRef.current?.preloadNext(second));
+                  await deckRef.current?.play(first, second);
+                })();
+              }
             }, 520);
           } else {
             void bridge.releaseWakeLock();
@@ -211,7 +224,7 @@ export const App: React.FC = () => {
       });
     }
     return deckRef.current;
-  }, [bridge, clearWaqfTimer]);
+  }, [bridge, clearWaqfTimer, provider]);
 
   const cancelPrefetchIfActive = useCallback(() => {
     const s = useInstrumentStore.getState();
@@ -242,10 +255,16 @@ export const App: React.FC = () => {
       }
       const selected = expandVersesWithBismillah(slicePageVerses(verses, s.rangeStart, s.rangeEnd));
       const reciter = RECITERS[s.reciterId - 1] ?? RECITERS[0];
-      const bundles = await Promise.all(
-        selected.map((v) => provider.buildAyahBundle(v, reciter, localMp3Url))
-      );
+      // Build all bundles synchronously (<2ms) and resolve ONLY the first bundle before flipping
+      const bundles = selected.map((v) => provider.buildProvisionalBundle(v, reciter, localMp3Url));
+      if (bundles[0]) {
+        await provider.resolveBundleAudio(bundles[0]);
+      }
       if (startTokenRef.current !== token) return;
+      // Warm second bundle in background during the 560ms flip animation
+      if (bundles[1]) {
+        void provider.resolveBundleAudio(bundles[1]);
+      }
       s.readyToFlip(bundles);
       window.setTimeout(() => {
         if (startTokenRef.current !== token) return;
@@ -253,7 +272,11 @@ export const App: React.FC = () => {
         if (latest.phase !== 'FLIPPING_TO_SLATE') return;
         latest.enterPlaying();
         void bridge.acquireWakeLock();
-        void getDeck().play(bundles[0], bundles[1]);
+        void (async () => {
+          if (bundles[0]) await provider.resolveBundleAudio(bundles[0]);
+          if (bundles[1]) void provider.resolveBundleAudio(bundles[1]);
+          if (bundles[0]) await getDeck().play(bundles[0], bundles[1]);
+        })();
       }, 560);
     } catch (err) {
       if (startTokenRef.current !== token) return;

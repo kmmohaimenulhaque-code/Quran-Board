@@ -343,3 +343,19 @@ test('v1.2.1 Linux AppImage Fix Verification: bundleMediaFramework, deb GStreame
   const rocker = fs.readFileSync(path.join(root, 'src/ui/RockerPair.tsx'), 'utf8');
   assert.ok(!rocker.includes('setPointerCapture'), 'RockerPair must not use setPointerCapture (WebKitGTK lockup)');
 });
+
+
+test('v1.2.2 Linux Latency & Shamim Local Audio Fix Verification: no 4.5s waitForMetadata stall, lazy bundle resolution, local /audio/ blob conversion, zero backdrop-filter lag', () => {
+  const deck = fs.readFileSync(path.join(root, 'src/engine/audio-deck.ts'), 'utf8');
+  assert.ok(!deck.includes('await this.waitForMetadata') && !deck.includes('private waitForMetadata'), 'audio-deck must NOT block play() behind a 4.5s waitForMetadata timeout');
+
+  const prov = fs.readFileSync(path.join(root, 'src/engine/public-provider.ts'), 'utf8');
+  assert.ok(prov.includes('buildProvisionalBundle') && prov.includes('resolveBundleAudio'), 'public-provider must support lazy buildProvisionalBundle + resolveBundleAudio');
+  assert.ok(prov.includes("raw.startsWith('/audio/')") && prov.includes('URL.createObjectURL'), 'public-provider must convert local /audio/ clips to blob: URLs for Linux WebKitGTK');
+
+  const app = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8');
+  assert.ok(app.includes('provider.buildProvisionalBundle') && app.includes('provider.resolveBundleAudio'), 'App.tsx must resolve bundles lazily for <50ms flips');
+
+  const css = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+  assert.ok(css.includes('backdrop-filter: none !important'), 'styles.css must disable CPU backdrop-filter blur on drawers');
+});

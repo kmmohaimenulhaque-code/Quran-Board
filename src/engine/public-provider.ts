@@ -19,6 +19,7 @@ function pad3(n: number): string {
 export class PublicRecitationProvider implements RecitationProvider {
   private pageCache = new Map<number, VerseEntry[]>();
   private surahCache = new Map<number, VerseEntry[]>();
+  private resolvedAudioCache = new Map<string, string>();
 
   constructor(private bridge: PlatformBridge) {
     for (const [pageStr, verses] of Object.entries(BUNDLED_MAP)) {
@@ -26,17 +27,10 @@ export class PublicRecitationProvider implements RecitationProvider {
     }
   }
 
-  /**
-   * Synchronous cache lookup so Face A immediately displays true Surah Ayah numbers
-   * (e.g., Page 2 -> 01-05, Page 3 -> 06-16, Page 45 -> 265-269) with zero flicker.
-   */
   getCachedPageVerses(page: number): VerseEntry[] | null {
     return this.pageCache.get(page) ?? null;
   }
 
-  /**
-   * Synchronous lookup of a full Surah from the bundled 604-page Mushaf cache if complete.
-   */
   getCachedSurahVerses(surahId: number): VerseEntry[] | null {
     const existing = this.surahCache.get(surahId);
     if (existing) return existing;
@@ -60,10 +54,6 @@ export class PublicRecitationProvider implements RecitationProvider {
     return null;
   }
 
-  /**
-   * Loads ALL verses of a Surah (for Full Surah Mode), reading instantaneously from
-   * bundled mushaf-604.json when complete, or fetching from AlQuran Cloud otherwise.
-   */
   async getSurahVerses(surahId: number): Promise<VerseEntry[]> {
     const cached = this.getCachedSurahVerses(surahId);
     if (cached && cached.length > 0) return cached;
@@ -83,9 +73,6 @@ export class PublicRecitationProvider implements RecitationProvider {
     return verses;
   }
 
-  /**
-   * Proactively warms 001001.mp3 (Bismillah) for every EveryAyah reciter in Web/PWA mode.
-   */
   async cacheAllReciterBismillahs(reciters: Reciter[]): Promise<void> {
     if (
       typeof window !== 'undefined' &&
@@ -119,11 +106,15 @@ export class PublicRecitationProvider implements RecitationProvider {
     return verses;
   }
 
-  async buildAyahBundle(
+  /**
+   * Synchronous zero-latency bundle builder so clicking FACE B on 286-ayah Al-Baqarah
+   * flips in <50ms without running 286 parallel Cache API lookups up front.
+   */
+  buildProvisionalBundle(
     verse: VerseEntry,
     reciter: Reciter,
     localOverrideUrl?: string | null
-  ): Promise<AyahBundle> {
+  ): AyahBundle {
     if (verse.isBismillah) {
       if (reciter.providerMode === 'local-baqarah') {
         const durationMs = SHAMIM_BISMILLAH_CLIP.endMs - SHAMIM_BISMILLAH_CLIP.startMs;
@@ -155,7 +146,6 @@ export class PublicRecitationProvider implements RecitationProvider {
         };
       }
       const bismillahUrl = `https://everyayah.com/data/${reciter.everyAyahDir}/001001.mp3`;
-      const audioUrl = await this.bridge.cacheAudio(bismillahUrl);
       const provisionalMs = 5200;
       return {
         verseKey: verse.verseKey,
@@ -163,7 +153,7 @@ export class PublicRecitationProvider implements RecitationProvider {
         ayah: 0,
         isBismillah: true,
         reciterId: reciter.id,
-        audioUrl,
+        audioUrl: bismillahUrl,
         clipStartSec: 0,
         clipEndSec: null,
         durationMs: provisionalMs,
@@ -203,7 +193,6 @@ export class PublicRecitationProvider implements RecitationProvider {
     }
 
     const remoteUrl = `https://everyayah.com/data/${reciter.everyAyahDir}/${pad3(verse.surah)}${pad3(verse.ayah)}.mp3`;
-    const audioUrl = await this.bridge.cacheAudio(remoteUrl);
     const provisionalMs = Math.max(3200, verse.textUthmani.length * 115);
 
     return {
@@ -211,11 +200,61 @@ export class PublicRecitationProvider implements RecitationProvider {
       surah: verse.surah,
       ayah: verse.ayah,
       reciterId: reciter.id,
-      audioUrl,
+      audioUrl: remoteUrl,
       clipStartSec: 0,
       clipEndSec: null,
       durationMs: provisionalMs,
       words: synthesizeWordSegments(verse.textUthmani, provisionalMs, 0)
     };
+  }
+
+  /**
+   * Resolves a single bundle's audio URL just-in-time:
+   * - Local /audio/... assets are fetched into cached in-memory blob: URLs so Linux WebKitGTK
+   *   GStreamer never rejects Tauri's custom tauri:// protocol.
+   * - Remote https:// URLs check persistent Cache API via bridge.cacheAudio().
+   */
+  async resolveBundleAudio(bundle: AyahBundle): Promise<AyahBundle> {
+    const raw = bundle.audioUrl;
+    if (!raw || raw.startsWith('blob:') || raw.startsWith('data:')) {
+      return bundle;
+    }
+
+    const memHit = this.resolvedAudioCache.get(raw);
+    if (memHit) {
+      bundle.audioUrl = memHit;
+      return bundle;
+    }
+
+    if (raw.startsWith('/audio/')) {
+      try {
+        const resp = await fetch(raw);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          this.resolvedAudioCache.set(raw, blobUrl);
+          bundle.audioUrl = blobUrl;
+        }
+      } catch {
+        // Fallback to original relative path
+      }
+      return bundle;
+    }
+
+    const resolved = await this.bridge.cacheAudio(raw);
+    if (resolved.startsWith('blob:')) {
+      this.resolvedAudioCache.set(raw, resolved);
+    }
+    bundle.audioUrl = resolved;
+    return bundle;
+  }
+
+  async buildAyahBundle(
+    verse: VerseEntry,
+    reciter: Reciter,
+    localOverrideUrl?: string | null
+  ): Promise<AyahBundle> {
+    const bundle = this.buildProvisionalBundle(verse, reciter, localOverrideUrl);
+    return this.resolveBundleAudio(bundle);
   }
 }

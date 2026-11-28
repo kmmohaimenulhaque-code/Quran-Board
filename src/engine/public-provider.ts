@@ -24,10 +24,23 @@ export class PublicRecitationProvider implements RecitationProvider {
   }
 
   /**
-   * Proactively caches 001001.mp3 (Bismillah) for every EveryAyah reciter
-   * so Surah openings recite Bismillah aloud instantaneously even offline.
+   * Synchronous cache lookup so Face A immediately displays true Surah Ayah numbers
+   * (e.g., Page 2 -> 01-05, Page 3 -> 06-16, Page 45 -> 265-269) with zero flicker.
+   */
+  getCachedPageVerses(page: number): VerseEntry[] | null {
+    return this.pageCache.get(page) ?? null;
+  }
+
+  /**
+   * Proactively warms 001001.mp3 (Bismillah) for every EveryAyah reciter in Web/PWA mode.
    */
   async cacheAllReciterBismillahs(reciters: Reciter[]): Promise<void> {
+    if (
+      typeof window !== 'undefined' &&
+      ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
+    ) {
+      return;
+    }
     await Promise.allSettled(
       reciters
         .filter((r) => r.providerMode === 'everyayah')
@@ -62,13 +75,28 @@ export class PublicRecitationProvider implements RecitationProvider {
     if (verse.isBismillah) {
       if (reciter.providerMode === 'local-baqarah') {
         const durationMs = SHAMIM_BISMILLAH_CLIP.endMs - SHAMIM_BISMILLAH_CLIP.startMs;
+        // Use dedicated pre-sliced clip (/audio/shamim/002000.mp3) to avoid Android WebView seek bugs
+        if (!localOverrideUrl) {
+          return {
+            verseKey: verse.verseKey,
+            surah: verse.surah,
+            ayah: 0,
+            isBismillah: true,
+            reciterId: reciter.id,
+            audioUrl: '/audio/shamim/002000.mp3',
+            clipStartSec: 0,
+            clipEndSec: null,
+            durationMs,
+            words: synthesizeWordSegments(BISMILLAH_TEXT, durationMs, 0)
+          };
+        }
         return {
           verseKey: verse.verseKey,
           surah: verse.surah,
           ayah: 0,
           isBismillah: true,
           reciterId: reciter.id,
-          audioUrl: localOverrideUrl || reciter.localAudioPath || '/audio/baqarah-preview.mp3',
+          audioUrl: localOverrideUrl,
           clipStartSec: SHAMIM_BISMILLAH_CLIP.startMs / 1000,
           clipEndSec: SHAMIM_BISMILLAH_CLIP.endMs / 1000,
           durationMs,
@@ -96,6 +124,20 @@ export class PublicRecitationProvider implements RecitationProvider {
       const seg = SHAMIM_MAP[verse.verseKey];
       if (seg) {
         const durationMs = seg.endMs - seg.startMs;
+        // Dedicated per-ayah MP3 clip (002001.mp3..002010.mp3) -> zero seek-reset on Android WebView
+        if (!localOverrideUrl && verse.ayah >= 1 && verse.ayah <= 10) {
+          return {
+            verseKey: verse.verseKey,
+            surah: verse.surah,
+            ayah: verse.ayah,
+            reciterId: reciter.id,
+            audioUrl: `/audio/shamim/002${pad3(verse.ayah)}.mp3`,
+            clipStartSec: 0,
+            clipEndSec: null,
+            durationMs,
+            words: synthesizeWordSegments(verse.textUthmani, durationMs, 0)
+          };
+        }
         return {
           verseKey: verse.verseKey,
           surah: verse.surah,

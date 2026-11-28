@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeAyahEndedTransition } from '../state-machine';
+import { computeAyahEndedTransition, computePassResetAyahIdx } from '../state-machine';
 
 describe('Full-Range Block Repetition FSM (1..N)', () => {
   it('steps sequentially through ayahs within a pass', () => {
@@ -37,5 +37,11 @@ describe('Full-Range Block Repetition FSM (1..N)', () => {
       nextPass: 1,
       nextAyahIdx: 0
     });
+  });
+
+  it('skips opening Bismillah bundle on Pass 2..N so Bismillah is recited once only', () => {
+    expect(computePassResetAyahIdx([{ isBismillah: true }, { isBismillah: false }])).toBe(1);
+    expect(computePassResetAyahIdx([{ isBismillah: false }, { isBismillah: false }])).toBe(0);
+    expect(computePassResetAyahIdx([{ isBismillah: true }])).toBe(0);
   });
 });

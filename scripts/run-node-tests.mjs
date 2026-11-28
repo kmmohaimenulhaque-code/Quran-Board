@@ -210,3 +210,46 @@ test('Bismillah rules: strip API prefix, inject before Ayah 1 (except Surah 1 & 
 });
 
 console.log(`\nALL ${passed}/${passed} TESTS PASSED.`);
+
+
+test('v1.1.0 Bugfix Verification: 11 per-ayah Shamim clips + Pass 2 Bismillah skip + Auto-paging + Real Ayah Sync + Non-blocking Linux adapter', () => {
+  // 1. All 11 pre-sliced Shamim MP3 clips exist (002000.mp3..002010.mp3)
+  for (let i = 0; i <= 10; i++) {
+    const clip = path.join(root, 'public/audio/shamim', `002${String(i).padStart(3, '0')}.mp3`);
+    assert.ok(fs.existsSync(clip), `Missing Shamim clip ${clip}`);
+    assert.ok(fs.statSync(clip).size > 15000, `Shamim clip too small: ${clip}`);
+  }
+  const prov = fs.readFileSync(path.join(root, 'src/engine/public-provider.ts'), 'utf8');
+  assert.ok(prov.includes('/audio/shamim/002000.mp3'), 'public-provider must use /audio/shamim/002000.mp3');
+  assert.ok(prov.includes('getCachedPageVerses'), 'public-provider must expose synchronous getCachedPageVerses');
+
+  // 2. Pass 2..N skips Bismillah in state-machine.ts and App.tsx
+  const sm = fs.readFileSync(path.join(root, 'src/core/state-machine.ts'), 'utf8');
+  assert.ok(sm.includes('computePassResetAyahIdx'), 'state-machine must define computePassResetAyahIdx');
+  const app = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8');
+  assert.ok(app.includes('updated.bundles[startIdx]'), 'App.tsx PASS_RESET must resume from updated.currentAyahIdx');
+
+  // 3. Face B multi-page auto-paging in RecitationSlate.tsx
+  const slate = fs.readFileSync(path.join(root, 'src/ui/RecitationSlate.tsx'), 'utf8');
+  assert.ok(slate.includes('slatePageIndex'), 'RecitationSlate must track slatePageIndex');
+  assert.ok(slate.includes('translateY(-'), 'RecitationSlate must translateY to reveal overflowing verses');
+  assert.ok(slate.includes('activeWordRef'), 'RecitationSlate must measure activeWordRef');
+
+  // 4. Real Surah Ayah sync on Face A (Page 2 -> 1..5, Page 3 -> 6..16, Page 45 -> 265..269)
+  const mushaf = JSON.parse(fs.readFileSync(path.join(root, 'src/assets/data/mushaf-604.json'), 'utf8'));
+  assert.strictEqual(mushaf['2'][0].ayah, 1);
+  assert.strictEqual(mushaf['2'][mushaf['2'].length - 1].ayah, 5);
+  assert.strictEqual(mushaf['3'][0].ayah, 6);
+  assert.strictEqual(mushaf['3'][mushaf['3'].length - 1].ayah, 16);
+  assert.strictEqual(mushaf['45'][0].ayah, 265);
+  assert.strictEqual(mushaf['45'][mushaf['45'].length - 1].ayah, 269);
+  assert.ok(app.includes('displayRangeStart') && app.includes('displayRangeEnd'), 'App.tsx must pass real Surah Ayah numbers to ControlFace');
+  const cf = fs.readFileSync(path.join(root, 'src/ui/ControlFace.tsx'), 'utf8');
+  assert.ok(cf.includes('isThreeDigitRange'), 'ControlFace must support 3-digit Surah Ayah ranges');
+
+  // 5. Non-blocking Linux WebKitGTK audio adapter + cancellable PREFETCHING
+  const wa = fs.readFileSync(path.join(root, 'src/platform/web-adapter.ts'), 'utf8');
+  assert.ok(wa.includes('AbortSignal.timeout'), 'web-adapter must enforce AbortSignal.timeout');
+  assert.ok(wa.includes('isTauriRuntime'), 'web-adapter must bypass blocking fetch().blob() in Tauri WebKitGTK');
+  assert.ok(app.includes('cancelPrefetchIfActive'), 'App.tsx must allow cancelling PREFETCHING');
+});

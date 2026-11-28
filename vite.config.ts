@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'audio/baqarah-preview.mp3'],
+      includeAssets: ['favicon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'audio/baqarah-preview.mp3', 'audio/shamim/002000.mp3', 'audio/shamim/002001.mp3', 'audio/shamim/002002.mp3', 'audio/shamim/002003.mp3', 'audio/shamim/002004.mp3', 'audio/shamim/002005.mp3', 'audio/shamim/002006.mp3', 'audio/shamim/002007.mp3', 'audio/shamim/002008.mp3', 'audio/shamim/002009.mp3', 'audio/shamim/002010.mp3'],
       manifest: {
         name: 'Tactile Quran Recitation Instrument',
         short_name: 'Quran Instrument',

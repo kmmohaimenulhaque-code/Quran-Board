@@ -30,7 +30,13 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
   onStopAndFlip
 }) => {
   const frameRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const activeWordRef = useRef<HTMLSpanElement | null>(null);
+  const pagingTimerRef = useRef<number | null>(null);
+
   const [rowHeight, setRowHeight] = useState(74);
+  const [slatePageIndex, setSlatePageIndex] = useState(0);
+  const [isPaging, setIsPaging] = useState(false);
 
   useEffect(() => {
     const updateMetrics = () => {
@@ -41,7 +47,49 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
     return () => window.removeEventListener('resize', updateMetrics);
   }, []);
 
+  // Reset paging when a new bundle sequence loads or pass resets
+  useEffect(() => {
+    setSlatePageIndex(0);
+    setIsPaging(false);
+  }, [bundles]);
+
+  useEffect(() => {
+    const isStartOfPass =
+      phase === 'PASS_RESET' ||
+      (currentAyahIdx === 0 && activeWordIndex === 0) ||
+      (Boolean(bundles[0]?.isBismillah) && currentAyahIdx === 1 && activeWordIndex === 0);
+
+    if (isStartOfPass) {
+      setSlatePageIndex(0);
+      return;
+    }
+
+    const vp = viewportRef.current;
+    const el = activeWordRef.current;
+    if (!vp || !el) return;
+
+    const viewportH = vp.clientHeight || rowHeight * 8;
+    if (viewportH <= 0) return;
+
+    const wordTop = el.offsetTop;
+    const targetPage = Math.max(0, Math.floor(wordTop / viewportH));
+
+    if (targetPage !== slatePageIndex) {
+      setIsPaging(true);
+      setSlatePageIndex(targetPage);
+      if (pagingTimerRef.current) window.clearTimeout(pagingTimerRef.current);
+      pagingTimerRef.current = window.setTimeout(() => setIsPaging(false), 180);
+    }
+  }, [currentAyahIdx, activeWordIndex, bundles, rowHeight, phase, slatePageIndex]);
+
+  useEffect(() => {
+    return () => {
+      if (pagingTimerRef.current) window.clearTimeout(pagingTimerRef.current);
+    };
+  }, []);
+
   const fontSize = Math.max(18, Math.min(28, Math.round(rowHeight * 0.35)));
+  const pageOffsetPx = slatePageIndex * (rowHeight * 8);
 
   return (
     <section className="slab-face face-b" aria-label="Recitation Slate">
@@ -63,12 +111,21 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
           ))}
         </div>
 
-        <div className={`slate-text-viewport ${phase === 'PASS_RESET' ? 'fading' : ''}`}>
+        <div
+          ref={viewportRef}
+          className={`slate-text-viewport ${phase === 'PASS_RESET' ? 'fading' : ''} ${
+            isPaging ? 'paging' : ''
+          }`}
+        >
           <div
             className="slate-words-layer"
             dir="rtl"
             lang="ar"
-            style={{ lineHeight: `${rowHeight.toFixed(2)}px`, fontSize: `${fontSize}px` }}
+            style={{
+              lineHeight: `${rowHeight.toFixed(2)}px`,
+              fontSize: `${fontSize}px`,
+              transform: `translateY(-${pageOffsetPx.toFixed(2)}px)`
+            }}
           >
             {bundles.map((bundle, aIdx) => {
               const medallionLit =
@@ -77,15 +134,21 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
               return (
                 <React.Fragment key={bundle.verseKey}>
                   {bundle.words.map((w) => {
+                    const isActive = aIdx === currentAyahIdx && w.wordIndex === activeWordIndex;
                     let cls = 'word-token';
-                    if (aIdx < currentAyahIdx || (aIdx === currentAyahIdx && w.wordIndex < activeWordIndex)) {
+                    if (
+                      aIdx < currentAyahIdx ||
+                      (aIdx === currentAyahIdx && w.wordIndex < activeWordIndex)
+                    ) {
                       cls += ' revealed';
-                    } else if (aIdx === currentAyahIdx && w.wordIndex === activeWordIndex) {
+                    } else if (isActive) {
                       cls += ' active';
                     }
                     return (
                       <React.Fragment key={`${bundle.verseKey}-${w.wordIndex}`}>
-                        <span className={cls}>{w.textUthmani}</span>{' '}
+                        <span ref={isActive ? activeWordRef : undefined} className={cls}>
+                          {w.textUthmani}
+                        </span>{' '}
                       </React.Fragment>
                     );
                   })}

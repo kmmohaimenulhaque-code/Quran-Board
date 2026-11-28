@@ -38,6 +38,16 @@ export function computeAyahEndedTransition(
   };
 }
 
+/**
+ * On Pass 2..N, skip the opening Bismillah bundle so Bismillah is recited
+ * aloud once at the start of Pass 1 and never repeated on subsequent passes.
+ */
+export function computePassResetAyahIdx(
+  bundles: ReadonlyArray<Pick<AyahBundle, 'isBismillah'>>
+): number {
+  return bundles[0]?.isBismillah && bundles.length > 1 ? 1 : 0;
+}
+
 export interface InstrumentStore extends PlaybackState {
   reciterCount: number;
   pageMaxVerse: number;
@@ -89,8 +99,27 @@ export const useInstrumentStore = create<InstrumentStore>((set, get) => ({
   setPage: (page, maxVerse) =>
     set((s) => {
       const clampedPage = clampPage(page);
-      const { rangeStart, rangeEnd } = clampVerseRange(s.rangeStart, s.rangeEnd, maxVerse);
-      return { page: clampedPage, pageMaxVerse: maxVerse, rangeStart, rangeEnd };
+      const safeMax = Math.max(1, Math.trunc(maxVerse));
+      // When navigating to a new page, select the full verse span of that page by default
+      if (clampedPage !== s.page) {
+        return {
+          page: clampedPage,
+          pageMaxVerse: safeMax,
+          rangeStart: 1,
+          rangeEnd: safeMax
+        };
+      }
+      // Same page (e.g., async verse count resolved): keep full-page selection if previously full
+      if (s.rangeStart === 1 && s.rangeEnd === s.pageMaxVerse) {
+        return {
+          page: clampedPage,
+          pageMaxVerse: safeMax,
+          rangeStart: 1,
+          rangeEnd: safeMax
+        };
+      }
+      const { rangeStart, rangeEnd } = clampVerseRange(s.rangeStart, s.rangeEnd, safeMax);
+      return { page: clampedPage, pageMaxVerse: safeMax, rangeStart, rangeEnd };
     }),
 
   setRangeFocus: (focus) => set({ rangeFocus: focus }),
@@ -154,7 +183,7 @@ export const useInstrumentStore = create<InstrumentStore>((set, get) => ({
     set((s) => ({
       phase: 'PLAYING',
       currentPass: s.currentPass + 1,
-      currentAyahIdx: 0,
+      currentAyahIdx: computePassResetAyahIdx(s.bundles),
       activeWordIndex: 0
     })),
 

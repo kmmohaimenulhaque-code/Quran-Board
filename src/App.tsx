@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import recitersJson from './assets/data/reciters.json';
 import surahsJson from './assets/data/surahs-114.json';
-import type { Reciter } from './core/types';
+import type { Reciter, VerseEntry } from './core/types';
 import { formatTelemetryRange, slicePageVerses } from './core/mushaf-index';
 import { expandVersesWithBismillah } from './core/bismillah';
 import { useInstrumentStore } from './core/state-machine';
@@ -32,14 +32,47 @@ export const App: React.FC = () => {
   const peekTimer = useRef<number | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const didLongPress = useRef(false);
+  const startTokenRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bridge = useMemo(() => new WebPlatformAdapter(), []);
   const provider = useMemo(() => new PublicRecitationProvider(bridge), [bridge]);
+  const [currentPageVerses, setCurrentPageVerses] = useState<VerseEntry[]>(
+    () => provider.getCachedPageVerses(useInstrumentStore.getState().page) ?? []
+  );
 
   useEffect(() => {
     void provider.cacheAllReciterBismillahs(RECITERS);
   }, [provider]);
+
+  // Keep Face A verse range synced in real time with the actual Surah Ayah numbers on the active page
+  useEffect(() => {
+    let cancelled = false;
+    const cached = provider.getCachedPageVerses(store.page);
+    if (cached && cached.length > 0) {
+      setCurrentPageVerses(cached);
+      if (useInstrumentStore.getState().pageMaxVerse !== cached.length) {
+        useInstrumentStore.getState().setPage(store.page, cached.length);
+      }
+      return;
+    }
+
+    void provider
+      .getPageVerses(store.page)
+      .then((vs) => {
+        if (cancelled || vs.length === 0) return;
+        setCurrentPageVerses(vs);
+        useInstrumentStore.getState().setPage(store.page, vs.length);
+      })
+      .catch(() => {
+        // Offline page not cached yet; keep existing range gracefully
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [provider, store.page]);
+
   const deckRef = useRef<DualBufferAudioDeck | null>(null);
 
   const showPeek = useCallback((msg: string, isErr = false) => {
@@ -65,8 +98,10 @@ export const App: React.FC = () => {
               const latest = useInstrumentStore.getState();
               if (latest.phase !== 'PASS_RESET') return;
               latest.finishPassReset();
-              const first = latest.bundles[0];
-              if (first) void deckRef.current?.play(first, latest.bundles[1]);
+              const updated = useInstrumentStore.getState();
+              const startIdx = updated.currentAyahIdx;
+              const first = updated.bundles[startIdx];
+              if (first) void deckRef.current?.play(first, updated.bundles[startIdx + 1]);
             }, 450);
           } else {
             void bridge.releaseWakeLock();
@@ -77,22 +112,37 @@ export const App: React.FC = () => {
     return deckRef.current;
   }, [bridge]);
 
+  const cancelPrefetchIfActive = useCallback(() => {
+    const s = useInstrumentStore.getState();
+    if (s.phase === 'PREFETCHING') {
+      startTokenRef.current += 1;
+      s.finishFlipToControl();
+    }
+  }, []);
+
   const handleStart = useCallback(async () => {
     setOpenDrawer('none');
     const s = useInstrumentStore.getState();
     if (s.phase !== 'IDLE') return;
+    const token = ++startTokenRef.current;
     getDeck().unlock();
     playMechanicalClick(true);
     s.beginPrefetch();
     try {
       const verses = await provider.getPageVerses(s.page);
+      if (startTokenRef.current !== token) return;
+      if (verses.length === 0) {
+        throw new Error(`Page ${s.page} not available offline yet`);
+      }
       const selected = expandVersesWithBismillah(slicePageVerses(verses, s.rangeStart, s.rangeEnd));
       const reciter = RECITERS[s.reciterId - 1] ?? RECITERS[0];
       const bundles = await Promise.all(
         selected.map((v) => provider.buildAyahBundle(v, reciter, localMp3Url))
       );
+      if (startTokenRef.current !== token) return;
       s.readyToFlip(bundles);
       window.setTimeout(() => {
+        if (startTokenRef.current !== token) return;
         const latest = useInstrumentStore.getState();
         if (latest.phase !== 'FLIPPING_TO_SLATE') return;
         latest.enterPlaying();
@@ -100,6 +150,7 @@ export const App: React.FC = () => {
         void getDeck().play(bundles[0], bundles[1]);
       }, 560);
     } catch (err) {
+      if (startTokenRef.current !== token) return;
       const msg = err instanceof Error ? err.message : 'Unable to load audio';
       s.failPrefetch(msg);
       showPeek(msg, true);
@@ -122,11 +173,16 @@ export const App: React.FC = () => {
 
   const handleStopAndFlip = useCallback(() => {
     setOpenDrawer('none');
+    startTokenRef.current += 1;
     const s = useInstrumentStore.getState();
     if (s.phase === 'IDLE') return;
     playMechanicalClick(true);
     getDeck().stop();
     void bridge.releaseWakeLock();
+    if (s.phase === 'PREFETCHING') {
+      s.finishFlipToControl();
+      return;
+    }
     s.stopAndFlip();
     window.setTimeout(() => {
       useInstrumentStore.getState().finishFlipToControl();
@@ -175,6 +231,10 @@ export const App: React.FC = () => {
     store.repetition
   ).padStart(2, '0')} · P.${String(store.page).padStart(2, '0')} · ${verseSpan}`;
 
+  // Map 1-based on-page indices to actual Surah Ayah numbers for Face A LEDs
+  const displayRangeStart = currentPageVerses[store.rangeStart - 1]?.ayah ?? store.rangeStart;
+  const displayRangeEnd = currentPageVerses[store.rangeEnd - 1]?.ayah ?? store.rangeEnd;
+
   const edgeClassName =
     store.phase === 'PREFETCHING'
       ? 'prefetching'
@@ -194,10 +254,12 @@ export const App: React.FC = () => {
         onSelectFaceB={handleStart}
         onToggleSurahs={() => {
           playMechanicalClick();
+          cancelPrefetchIfActive();
           setOpenDrawer((d) => (d === 'surahs' ? 'none' : 'surahs'));
         }}
         onToggleOffline={() => {
           playMechanicalClick();
+          cancelPrefetchIfActive();
           setOpenDrawer((d) => (d === 'offline' ? 'none' : 'offline'));
         }}
         onEdgePressStart={() => {
@@ -212,6 +274,7 @@ export const App: React.FC = () => {
         onEdgePressEnd={() => {
           if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
           if (store.phase === 'IDLE') void handleStart();
+          else if (store.phase === 'PREFETCHING') handleStopAndFlip();
           else if (!didLongPress.current) handleTogglePause();
         }}
         overlays={
@@ -227,12 +290,11 @@ export const App: React.FC = () => {
               onSelectSurah={(surahId, startPage) => {
                 playMechanicalClick(true);
                 if (store.phase !== 'IDLE') handleStopAndFlip();
-                store.setPage(startPage, store.pageMaxVerse);
+                const cached = provider.getCachedPageVerses(startPage);
+                store.setPage(startPage, cached?.length ?? store.pageMaxVerse);
+                if (cached) setCurrentPageVerses(cached);
                 const sr = SURAHS[surahId - 1];
                 if (sr) showPeek(`P.${String(startPage).padStart(3, '0')} · ${sr.english} (${sr.ayahs}v)`);
-                void provider.getPageVerses(startPage).then((vs) => {
-                  if (vs.length > 0) useInstrumentStore.getState().setPage(startPage, vs.length);
-                });
               }}
               onClose={() => setOpenDrawer('none')}
             />
@@ -256,8 +318,8 @@ export const App: React.FC = () => {
         <ControlFace
           reciterId={store.reciterId}
           page={store.page}
-          rangeStart={store.rangeStart}
-          rangeEnd={store.rangeEnd}
+          rangeStart={displayRangeStart}
+          rangeEnd={displayRangeEnd}
           rangeFocus={store.rangeFocus}
           repetition={store.repetition}
           bezelPeek={bezelPeek}
@@ -270,10 +332,9 @@ export const App: React.FC = () => {
           }}
           onStepPage={(d) => {
             const nextPage = Math.max(1, Math.min(604, store.page + d));
-            store.setPage(nextPage, store.pageMaxVerse);
-            void provider.getPageVerses(nextPage).then((vs) => {
-              if (vs.length > 0) useInstrumentStore.getState().setPage(nextPage, vs.length);
-            });
+            const cached = provider.getCachedPageVerses(nextPage);
+            store.setPage(nextPage, cached?.length ?? store.pageMaxVerse);
+            if (cached) setCurrentPageVerses(cached);
           }}
           onStepRange={(d) => store.stepRange(d)}
           onFocusRange={(f) => store.setRangeFocus(f)}

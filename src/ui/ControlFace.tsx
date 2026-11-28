@@ -37,66 +37,70 @@ export const ControlFace: React.FC<ControlFaceProps> = ({
   onFocusRange,
   onStepRepetition,
   onOpenMp3Slot
-}) => (
-  <section className="slab-face face-a" aria-label="Control Deck">
-    <div className="control-rows">
-      <div className="control-row">
-        <span className="row-label">Reciter</span>
-        <div className="led-readout">
-          <SevenSegment value={reciterId} minDigits={2} />
+}) => {
+  const isThreeDigitRange = rangeStart >= 100 || rangeEnd >= 100;
+
+  return (
+    <section className="slab-face face-a" aria-label="Control Deck">
+      <div className="control-rows">
+        <div className="control-row">
+          <span className="row-label">Reciter</span>
+          <div className="led-readout">
+            <SevenSegment value={reciterId} minDigits={2} />
+          </div>
+          <RockerPair label="Reciter" onStep={onStepReciter} />
         </div>
-        <RockerPair label="Reciter" onStep={onStepReciter} />
+
+        <div className="control-row">
+          <span className="row-label">Page number</span>
+          <div className="led-readout">
+            <SevenSegment value={page} minDigits={page >= 100 ? 3 : 2} />
+          </div>
+          <RockerPair label="Page number" onStep={onStepPage} />
+        </div>
+
+        <div className="control-row">
+          <span className="row-label">Verse ranges</span>
+          <div className={`led-readout ${isThreeDigitRange ? 'compact' : ''}`}>
+            <SevenSegment
+              value={rangeStart}
+              minDigits={rangeStart >= 100 ? 3 : 2}
+              focused={rangeFocus === 'start'}
+              onClick={() => onFocusRange('start')}
+            />
+            <SevenSegmentHyphen />
+            <SevenSegment
+              value={rangeEnd}
+              minDigits={rangeEnd >= 100 ? 3 : 2}
+              focused={rangeFocus === 'end'}
+              onClick={() => onFocusRange('end')}
+            />
+          </div>
+          <RockerPair label="Verse ranges" onStep={onStepRange} />
+        </div>
+
+        <div className="control-row">
+          <span className="row-label">Repetition</span>
+          <div className="led-readout">
+            <SevenSegment value={repetition} minDigits={2} />
+          </div>
+          <RockerPair label="Repetition" onStep={onStepRepetition} />
+        </div>
       </div>
 
-      <div className="control-row">
-        <span className="row-label">Page number</span>
-        <div className="led-readout">
-          <SevenSegment value={page} minDigits={page >= 100 ? 3 : 2} />
-        </div>
-        <RockerPair label="Page number" onStep={onStepPage} />
+      <div className="face-a-bezel">
+        <span className={`reciter-peek ${bezelPeek ? 'visible' : ''} ${isError ? 'error' : ''}`}>
+          {bezelPeek ?? ''}
+        </span>
+        <button
+          type="button"
+          className={`mp3-slot-btn ${localMp3Loaded ? 'loaded' : ''}`}
+          onClick={onOpenMp3Slot}
+          title="Load local Surah Al-Baqarah MP3"
+        >
+          {localMp3Loaded ? 'MP3 OK' : 'MP3 SLOT'}
+        </button>
       </div>
-
-      <div className="control-row">
-        <span className="row-label">Verse ranges</span>
-        <div className="led-readout">
-          <SevenSegment
-            value={rangeStart}
-            minDigits={2}
-            focused={rangeFocus === 'start'}
-            onClick={() => onFocusRange('start')}
-          />
-          <SevenSegmentHyphen />
-          <SevenSegment
-            value={rangeEnd}
-            minDigits={2}
-            focused={rangeFocus === 'end'}
-            onClick={() => onFocusRange('end')}
-          />
-        </div>
-        <RockerPair label="Verse ranges" onStep={onStepRange} />
-      </div>
-
-      <div className="control-row">
-        <span className="row-label">Repetition</span>
-        <div className="led-readout">
-          <SevenSegment value={repetition} minDigits={2} />
-        </div>
-        <RockerPair label="Repetition" onStep={onStepRepetition} />
-      </div>
-    </div>
-
-    <div className="face-a-bezel">
-      <span className={`reciter-peek ${bezelPeek ? 'visible' : ''} ${isError ? 'error' : ''}`}>
-        {bezelPeek ?? ''}
-      </span>
-      <button
-        type="button"
-        className={`mp3-slot-btn ${localMp3Loaded ? 'loaded' : ''}`}
-        onClick={onOpenMp3Slot}
-        title="Load local Surah Al-Baqarah MP3"
-      >
-        {localMp3Loaded ? 'MP3 OK' : 'MP3 SLOT'}
-      </button>
-    </div>
-  </section>
-);
+    </section>
+  );
+};

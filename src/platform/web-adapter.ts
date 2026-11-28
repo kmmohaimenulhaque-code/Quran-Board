@@ -4,22 +4,52 @@ import type { PlatformBridge } from './bridge';
 const AUDIO_CACHE_NAME = 'quran-instrument-audio-v1';
 const PREFS_KEY = 'quran-instrument-dials-v1';
 
+function isTauriRuntime(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
+  );
+}
+
+function createTimeoutSignal(ms: number): AbortSignal | undefined {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  return undefined;
+}
+
 export class WebPlatformAdapter implements PlatformBridge {
   private wakeLock: WakeLockSentinel | null = null;
 
+  /**
+   * Returns a playable audio URL immediately without blocking playback on network fetches.
+   * - In Tauri (Linux WebKitGTK / Android / macOS / Windows), streams remote URLs directly
+   *   so WebKitGTK CORS/fetch never stalls or freezes the UI.
+   * - In Web/PWA, serves from Cache API immediately on hit; on miss returns remoteUrl
+   *   instantly and warms the cache in the background with a 5s timeout.
+   */
   async cacheAudio(remoteUrl: string): Promise<string> {
-    if ('caches' in window) {
+    if (isTauriRuntime()) {
+      return remoteUrl;
+    }
+
+    if (typeof window !== 'undefined' && 'caches' in window) {
       try {
         const cache = await caches.open(AUDIO_CACHE_NAME);
-        let resp = await cache.match(remoteUrl);
-        if (!resp) {
-          resp = await fetch(remoteUrl);
-          if (resp.ok) await cache.put(remoteUrl, resp.clone());
-        }
-        if (resp && resp.ok) {
-          const blob = await resp.blob();
+        const hit = await cache.match(remoteUrl);
+        if (hit && hit.ok) {
+          const blob = await hit.blob();
           return URL.createObjectURL(blob);
         }
+        // Cache miss: warm in background without blocking playback or 3D flip
+        void fetch(remoteUrl, { signal: createTimeoutSignal(5000) })
+          .then((resp) => {
+            if (resp.ok) return cache.put(remoteUrl, resp.clone());
+            return undefined;
+          })
+          .catch(() => {
+            // Non-fatal background cache miss
+          });
       } catch {
         // Fallback to direct URL
       }
@@ -35,7 +65,7 @@ export class WebPlatformAdapter implements PlatformBridge {
     } catch {
       // Ignore storage read errors
     }
-    const res = await fetch(remoteUrl);
+    const res = await fetch(remoteUrl, { signal: createTimeoutSignal(6000) });
     if (!res.ok) throw new Error(`Failed to fetch ${remoteUrl}`);
     const data = (await res.json()) as T;
     try {

@@ -368,3 +368,14 @@ test('v1.2.3 Linux Web Audio Engine Verification: persistent AudioContext + deco
   assert.ok(deck.includes('decodeAudioData') && deck.includes('createBufferSource'), 'audio-deck must decode and play via Web Audio API on Linux');
   assert.ok(deck.includes('bufferCache.size >= 16'), 'audio-deck must cap decoded AudioBuffer cache to bound RAM');
 });
+
+
+test('v1.2.4 WSOLA Pitch-Preserving Speed Verification: wsola.ts exists, wired into Linux Web Audio path at playbackRate=1.0', () => {
+  const wsolaPath = path.join(root, 'src/engine/wsola.ts');
+  assert.ok(fs.existsSync(wsolaPath), 'src/engine/wsola.ts must exist');
+  const wsolaSrc = fs.readFileSync(wsolaPath, 'utf8');
+  assert.ok(wsolaSrc.includes('timeStretchChannels') && wsolaSrc.includes('timeStretchAudioBuffer'), 'wsola.ts must export timeStretchChannels and timeStretchAudioBuffer');
+
+  const deck = fs.readFileSync(path.join(root, 'src/engine/audio-deck.ts'), 'utf8');
+  assert.ok(deck.includes('timeStretchAudioBuffer') && deck.includes('src.playbackRate.value = 1.0'), 'audio-deck must use WSOLA stretched buffer at playbackRate=1.0 on Linux');
+});

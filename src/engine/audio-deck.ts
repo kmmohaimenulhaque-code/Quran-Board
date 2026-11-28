@@ -1,5 +1,6 @@
 import type { AyahBundle } from '../core/types';
 import { resolveActiveWordIndex, synthesizeWordSegments } from '../core/sync-resolver';
+import { timeStretchAudioBuffer } from './wsola';
 
 export interface DeckCallbacks {
   onWordChange: (wordIndex: number) => void;
@@ -19,8 +20,8 @@ function isLinuxTauriRuntime(): boolean {
  * Dual-buffer gapless Audio deck.
  * - Android, iOS, Windows, macOS, and Web use the proven dual HTML5 <audio> deck.
  * - Linux Tauri desktop uses a persistent Web Audio API (AudioContext + decodeAudioData +
- *   AudioBufferSourceNode) path to bypass WebKitGTK's 10-second per-ayah GStreamer playbin
- *   teardown/re-negotiation stall, achieving ~2ms inter-ayah handoff.
+ *   WSOLA pitch-preserving time-stretcher + AudioBufferSourceNode) for ~2ms handoff and
+ *   100% natural voice pitch across 0.75x..2x speeds.
  */
 export class DualBufferAudioDeck {
   private activeAudio = new Audio();
@@ -38,6 +39,7 @@ export class DualBufferAudioDeck {
   private activeSource: AudioBufferSourceNode | null = null;
   private activeBuffer: AudioBuffer | null = null;
   private bufferCache = new Map<string, AudioBuffer>();
+  private stretchedCache = new Map<string, AudioBuffer>();
   private decodingPromises = new Map<string, Promise<AudioBuffer | null>>();
   private webAudioStartCtxTime = 0;
   private webAudioOffsetSec = 0;
@@ -98,16 +100,40 @@ export class DualBufferAudioDeck {
     }
   }
 
-  setPlaybackRate(rate: number): void {
-    if (this.useWebAudioOnLinux && this.audioCtx && this.activeSource && this.playing) {
-      this.webAudioOffsetSec +=
-        (this.audioCtx.currentTime - this.webAudioStartCtxTime) * this.playbackRate;
-      this.webAudioStartCtxTime = this.audioCtx.currentTime;
-      this.activeSource.playbackRate.value = rate;
+  private getPlayableBuffer(url: string, rawBuffer: AudioBuffer, rate: number): AudioBuffer {
+    if (Math.abs(rate - 1) < 0.01) return rawBuffer;
+    const ctx = this.ensureAudioContext();
+    if (!ctx) return rawBuffer;
+    const cacheKey = `${url}@${rate.toFixed(2)}`;
+    const hit = this.stretchedCache.get(cacheKey);
+    if (hit) return hit;
+
+    const stretched = timeStretchAudioBuffer(ctx, rawBuffer, rate);
+    if (this.stretchedCache.size >= 16) {
+      const oldestKey = this.stretchedCache.keys().next().value;
+      if (oldestKey) this.stretchedCache.delete(oldestKey);
     }
+    this.stretchedCache.set(cacheKey, stretched);
+    return stretched;
+  }
+
+  setPlaybackRate(rate: number): void {
+    const prevRate = this.playbackRate;
     this.playbackRate = rate;
     this.activeAudio.playbackRate = rate;
     this.standbyAudio.playbackRate = rate;
+
+    if (
+      this.useWebAudioOnLinux &&
+      this.audioCtx &&
+      this.activeSource &&
+      this.activeBuffer &&
+      this.currentBundle &&
+      this.playing
+    ) {
+      this.webAudioOffsetSec += (this.audioCtx.currentTime - this.webAudioStartCtxTime) * prevRate;
+      this.startWebAudioBuffer(this.currentBundle, this.activeBuffer, this.webAudioOffsetSec);
+    }
   }
 
   private async decodeUrl(url: string): Promise<AudioBuffer | null> {
@@ -192,19 +218,23 @@ export class DualBufferAudioDeck {
     }
   }
 
-  private startWebAudioBuffer(bundle: AyahBundle, buffer: AudioBuffer, offsetSec: number): void {
+  private startWebAudioBuffer(bundle: AyahBundle, rawBuffer: AudioBuffer, originalOffsetSec: number): void {
     const ctx = this.ensureAudioContext();
     if (!ctx) return;
     this.stopWebAudioSource();
 
+    const rate = this.playbackRate;
+    const playable = this.getPlayableBuffer(bundle.audioUrl, rawBuffer, rate);
+
     const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    src.playbackRate.value = this.playbackRate;
+    src.buffer = playable;
+    // Pitch-preserving WSOLA already time-stretched the buffer, so playbackRate stays 1.0!
+    src.playbackRate.value = 1.0;
     src.connect(ctx.destination);
 
     this.activeSource = src;
-    this.activeBuffer = buffer;
-    this.webAudioOffsetSec = offsetSec;
+    this.activeBuffer = rawBuffer;
+    this.webAudioOffsetSec = originalOffsetSec;
     this.webAudioStartCtxTime = ctx.currentTime;
 
     src.onended = () => {
@@ -215,11 +245,13 @@ export class DualBufferAudioDeck {
       }
     };
 
+    const stretchedOffset = Math.max(0, Math.min(playable.duration - 0.02, originalOffsetSec / rate));
     const clipEnd = bundle.clipEndSec;
-    if (clipEnd !== null && clipEnd !== undefined && clipEnd > offsetSec) {
-      src.start(0, offsetSec, Math.max(0.05, clipEnd - offsetSec));
+    if (clipEnd !== null && clipEnd !== undefined && clipEnd > originalOffsetSec) {
+      const stretchedDur = Math.max(0.05, (clipEnd - originalOffsetSec) / rate);
+      src.start(0, stretchedOffset, stretchedDur);
     } else {
-      src.start(0, Math.max(0, offsetSec));
+      src.start(0, stretchedOffset);
     }
     this.startWebAudioLoop();
   }
@@ -235,7 +267,6 @@ export class DualBufferAudioDeck {
       }
     }
 
-    // Kick off next-ayah decode immediately in parallel
     if (nextBundle && nextBundle.audioUrl && nextBundle.audioUrl !== bundle.audioUrl) {
       void this.decodeUrl(nextBundle.audioUrl);
     }
@@ -256,7 +287,6 @@ export class DualBufferAudioDeck {
     this.lastWordIndex = -1;
     this.playing = true;
 
-    // Fast offline guard: uncached remote https:// while offline fails cleanly immediately
     if (
       typeof navigator !== 'undefined' &&
       navigator.onLine === false &&
@@ -270,12 +300,10 @@ export class DualBufferAudioDeck {
       return;
     }
 
-    // Linux Tauri fast path: zero-latency persistent AudioContext (~2ms handoff)
     if (this.useWebAudioOnLinux) {
       const ok = await this.playViaWebAudio(bundle, nextBundle);
       if (ok) return;
       if (!this.playing || this.currentBundle !== bundle) return;
-      // If offline or local asset failed decode, report error cleanly; otherwise fall back to <audio>
       if (
         (typeof navigator !== 'undefined' && navigator.onLine === false) ||
         !this.isRemoteUrl(bundle.audioUrl)
@@ -318,7 +346,7 @@ export class DualBufferAudioDeck {
         try {
           audio.currentTime = bundle.clipStartSec ?? 0;
         } catch {
-          // Ignore seek errors on unseekable streams
+          // Ignore
         }
       }
     };

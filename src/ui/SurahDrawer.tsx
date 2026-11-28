@@ -54,13 +54,25 @@ export const SurahDrawer: React.FC<SurahDrawerProps> = ({
     <div className={`surah-sheet ${open ? 'open' : ''}`} aria-label="All 114 Surahs">
       <div className="surah-sheet-head">
         <img src="/favicon.png" alt="Logo" className="sheet-logo" />
-        <input
-          type="text"
-          className="surah-search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search 114 Surahs (e.g. Baqarah, 36, يس)..."
-        />
+        <div className="surah-search-wrap">
+          <input
+            type="text"
+            className="surah-search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search 114 Surahs (e.g. Baqarah, 36, يس)..."
+          />
+          {query.length > 0 && (
+            <button
+              type="button"
+              className="surah-search-clear"
+              aria-label="Clear search"
+              onClick={() => setQuery('')}
+            >
+              ×
+            </button>
+          )}
+        </div>
         <button type="button" className="surah-close-btn" onClick={onClose}>
           ESC
         </button>

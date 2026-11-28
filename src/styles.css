@@ -1035,3 +1035,87 @@
     .face-b-bezel .telemetry-right {
       flex: 0 0 auto;
     }
+
+
+    /* v1.2.0 Offline Drawer Section Labels & Dual Progress Bars */
+    .offline-section-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9.5px;
+      letter-spacing: 0.09em;
+      color: #7AD8F5;
+      padding: 4px 2px 6px;
+      text-transform: uppercase;
+      opacity: 0.9;
+    }
+
+    .offline-dl-btn.running {
+      border-color: rgba(255, 118, 72, 0.7);
+      color: #FF8C66;
+    }
+
+    .offline-sub-progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .offline-sub-label,
+    .offline-sub-pct {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      color: rgba(185, 224, 240, 0.78);
+      white-space: nowrap;
+    }
+
+    .offline-progress-track.mini {
+      flex: 1;
+      height: 3px;
+      margin-top: 0;
+    }
+
+    .offline-progress-fill.cyan {
+      background: linear-gradient(90deg, #43C6F5, #8EE5FF);
+    }
+
+    /* v1.2.0 Surah Search Clear Button */
+    .surah-search-wrap {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: center;
+    }
+
+    .surah-search-wrap .surah-search {
+      width: 100%;
+      padding-right: 26px;
+    }
+
+    .surah-search-clear {
+      position: absolute;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.12);
+      color: #D8E2EC;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* v1.2.0 Tighter Face B Telemetry so 47:1-11 never truncates */
+    .face-b-bezel {
+      padding-left: 10px;
+      padding-right: 10px;
+      gap: 6px;
+    }
+
+    .face-b-bezel .telemetry-text {
+      font-size: clamp(9px, 2.35vw, 10.5px);
+      letter-spacing: 0.04em;
+    }

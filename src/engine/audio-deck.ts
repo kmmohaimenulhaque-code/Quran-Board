@@ -4,13 +4,15 @@ import { resolveActiveWordIndex, synthesizeWordSegments } from '../core/sync-res
 export interface DeckCallbacks {
   onWordChange: (wordIndex: number) => void;
   onAyahEnded: () => void;
+  onOfflineError?: (bundle: AyahBundle, message: string) => void;
   onError?: (message: string) => void;
 }
 
+type MetadataStatus = 'ready' | 'error' | 'timeout';
+
 /**
  * Dual-buffer gapless HTML5 Audio deck with synchronous user-gesture unlock
- * (prevents Safari/iOS/WebKitGTK NotAllowedError after async prefetch or 560ms flip)
- * and safe loadedmetadata seeking for clipped single-file tracks.
+ * and strict offline-error detection (never fakes silent word animations when audio is uncached).
  */
 export class DualBufferAudioDeck {
   private activeAudio = new Audio();
@@ -29,9 +31,6 @@ export class DualBufferAudioDeck {
     this.standbyAudio.setAttribute('playsinline', 'true');
   }
 
-  /**
-   * Must be called synchronously inside a user click/tap handler before any await or setTimeout.
-   */
   unlock(): void {
     if (this.unlocked) return;
     this.unlocked = true;
@@ -73,20 +72,31 @@ export class DualBufferAudioDeck {
     }
   }
 
-  private waitForMetadata(audio: HTMLAudioElement): Promise<void> {
-    if (audio.readyState >= 1) return Promise.resolve();
+  private waitForMetadata(audio: HTMLAudioElement): Promise<MetadataStatus> {
+    if (audio.readyState >= 1) return Promise.resolve('ready');
+    if (audio.error) return Promise.resolve('error');
     return new Promise((resolve) => {
-      const done = () => {
-        audio.removeEventListener('loadedmetadata', done);
-        audio.removeEventListener('canplay', done);
-        audio.removeEventListener('error', done);
-        resolve();
+      let settled = false;
+      const finish = (status: MetadataStatus) => {
+        if (settled) return;
+        settled = true;
+        audio.removeEventListener('loadedmetadata', onReady);
+        audio.removeEventListener('canplay', onReady);
+        audio.removeEventListener('error', onErr);
+        window.clearTimeout(timer);
+        resolve(status);
       };
-      audio.addEventListener('loadedmetadata', done, { once: true });
-      audio.addEventListener('canplay', done, { once: true });
-      audio.addEventListener('error', done, { once: true });
-      window.setTimeout(done, 3500);
+      const onReady = () => finish('ready');
+      const onErr = () => finish('error');
+      audio.addEventListener('loadedmetadata', onReady, { once: true });
+      audio.addEventListener('canplay', onReady, { once: true });
+      audio.addEventListener('error', onErr, { once: true });
+      const timer = window.setTimeout(() => finish('timeout'), 4500);
     });
+  }
+
+  private isRemoteUrl(url: string): boolean {
+    return /^https?:\/\//i.test(url);
   }
 
   async play(bundle: AyahBundle, nextBundle?: AyahBundle): Promise<void> {
@@ -94,6 +104,20 @@ export class DualBufferAudioDeck {
     this.currentBundle = bundle;
     this.lastWordIndex = -1;
     this.playing = true;
+
+    // Fast offline guard: if URL is uncached remote https:// and device is offline, fail cleanly immediately
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.onLine === false &&
+      this.isRemoteUrl(bundle.audioUrl)
+    ) {
+      this.stop();
+      this.callbacks.onOfflineError?.(
+        bundle,
+        `Offline · S.${bundle.surah} not cached — open OFFLINE tab`
+      );
+      return;
+    }
 
     const reuseSameClip =
       Boolean(this.activeAudio.src) &&
@@ -112,8 +136,18 @@ export class DualBufferAudioDeck {
     }
 
     this.activeAudio.muted = false;
-    await this.waitForMetadata(this.activeAudio);
+    const metaStatus = await this.waitForMetadata(this.activeAudio);
     if (!this.playing || this.currentBundle !== bundle) return;
+
+    if (metaStatus === 'error' || (metaStatus === 'timeout' && this.activeAudio.readyState === 0)) {
+      this.stop();
+      const msg =
+        typeof navigator !== 'undefined' && navigator.onLine === false
+          ? `Offline · S.${bundle.surah} not cached — open OFFLINE tab`
+          : `Audio unavailable for ${bundle.verseKey} — cache in OFFLINE tab`;
+      this.callbacks.onOfflineError?.(bundle, msg);
+      return;
+    }
 
     if (
       (bundle.clipEndSec === null || bundle.clipEndSec === undefined) &&
@@ -135,6 +169,16 @@ export class DualBufferAudioDeck {
       }
     };
 
+    this.activeAudio.onerror = () => {
+      if (this.playing && this.currentBundle === bundle) {
+        this.stop();
+        this.callbacks.onOfflineError?.(
+          bundle,
+          `Audio interrupted for ${bundle.verseKey} — cache in OFFLINE tab`
+        );
+      }
+    };
+
     try {
       this.activeAudio.currentTime = bundle.clipStartSec ?? 0;
     } catch {
@@ -150,31 +194,15 @@ export class DualBufferAudioDeck {
       await this.activeAudio.play();
       this.startLoop();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Audio playback blocked';
-      this.callbacks.onError?.(msg);
-      this.runTimedFallback(bundle);
+      this.stop();
+      const msg =
+        typeof navigator !== 'undefined' && navigator.onLine === false
+          ? `Offline · S.${bundle.surah} not cached — open OFFLINE tab`
+          : err instanceof Error
+          ? err.message
+          : 'Audio playback blocked';
+      this.callbacks.onOfflineError?.(bundle, msg);
     }
-  }
-
-  private runTimedFallback(bundle: AyahBundle): void {
-    this.stopLoop();
-    const startPerf = performance.now();
-    const tick = () => {
-      if (!this.playing || this.currentBundle !== bundle) return;
-      const elapsed = (performance.now() - startPerf) * this.playbackRate;
-      if (elapsed >= bundle.durationMs) {
-        this.stopLoop();
-        this.callbacks.onAyahEnded();
-        return;
-      }
-      const w = resolveActiveWordIndex(bundle.words, elapsed);
-      if (w !== this.lastWordIndex) {
-        this.lastWordIndex = w;
-        this.callbacks.onWordChange(w);
-      }
-      this.rafId = requestAnimationFrame(tick);
-    };
-    this.rafId = requestAnimationFrame(tick);
   }
 
   pause(): void {
@@ -194,6 +222,8 @@ export class DualBufferAudioDeck {
   stop(): void {
     this.playing = false;
     this.stopLoop();
+    this.activeAudio.onended = null;
+    this.activeAudio.onerror = null;
     this.activeAudio.pause();
     this.standbyAudio.pause();
     this.currentBundle = null;

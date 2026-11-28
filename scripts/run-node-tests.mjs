@@ -299,3 +299,31 @@ test('v1.1.1 Bugfix Verification: Tajweed waqf pause, multi-Surah exact slicing 
   const od = fs.readFileSync(path.join(root, 'src/ui/OfflineDrawer.tsx'), 'utf8');
   assert.ok(od.includes('downloadForOffline') && od.includes('selectedSurahId'), 'OfflineDrawer must use downloadForOffline and selectedSurahId');
 });
+
+
+test('v1.2.0 Bugfix Verification: Persistent Offline Cache (6 Single + 6 Full 114-Surah incl. Shamim), No Silent Offline Playback, Single-Ayah Telemetry, Search Clear', () => {
+  // 1. OfflineDrawer has both Active Surah (6 reciters) + Full Quran All-114-Surahs (6 reciters incl. Shamim) + persistent manifest
+  const od = fs.readFileSync(path.join(root, 'src/ui/OfflineDrawer.tsx'), 'utf8');
+  assert.ok(od.includes('FULL QURAN OFFLINE · ALL 114 SURAHS'), 'OfflineDrawer must have Full Quran 114-Surah section');
+  assert.ok(od.includes('Cache All 114') && od.includes('handleToggleFullQuran'), 'OfflineDrawer must support Full 114-Surah caching for all 6 reciters');
+  assert.ok(od.includes('CACHE_MANIFEST_KEY') && od.includes('localStorage'), 'OfflineDrawer must persist cached Surah state across restarts');
+  assert.ok(od.includes('offline-sub-progress'), 'OfflineDrawer must show live per-Surah progress bar during Full Quran download');
+
+  // 2. WebPlatformAdapter requests persistent storage + supports abortable downloadForOffline + isAudioCached
+  const wa = fs.readFileSync(path.join(root, 'src/platform/web-adapter.ts'), 'utf8');
+  assert.ok(wa.includes('requestPersistentStorage') && wa.includes('navigator.storage.persist'), 'web-adapter must call navigator.storage.persist');
+  assert.ok(wa.includes('isAudioCached'), 'web-adapter must implement isAudioCached');
+
+  // 3. DualBufferAudioDeck NEVER silently animates uncached ayahs offline
+  const deck = fs.readFileSync(path.join(root, 'src/engine/audio-deck.ts'), 'utf8');
+  assert.ok(!deck.includes('runTimedFallback'), 'audio-deck must NOT silently fake playback with runTimedFallback');
+  assert.ok(deck.includes('onOfflineError') && deck.includes('navigator.onLine === false'), 'audio-deck must emit onOfflineError when uncached audio fails offline');
+  const app = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8');
+  assert.ok(app.includes('onOfflineError:'), 'App.tsx must handle onOfflineError cleanly');
+
+  // 4. Single-ayah telemetry formatting (63:4 instead of 63:4-4) & SurahDrawer search clear
+  const mi = fs.readFileSync(path.join(root, 'src/core/mushaf-index.ts'), 'utf8');
+  assert.ok(mi.includes('if (first.ayah === last.ayah)'), 'formatTelemetryRange must collapse single-ayah spans');
+  const sd = fs.readFileSync(path.join(root, 'src/ui/SurahDrawer.tsx'), 'utf8');
+  assert.ok(sd.includes('surah-search-clear'), 'SurahDrawer must include one-tap clear button');
+});

@@ -67,6 +67,7 @@ export function formatTelemetryRange(verses: VerseEntry[]): string {
   const first = verses[0];
   const last = verses[verses.length - 1];
   if (first.surah === last.surah) {
+    if (first.ayah === last.ayah) return `${first.surah}:${first.ayah}`;
     return `${first.surah}:${first.ayah}–${last.ayah}`;
   }
   return `${first.verseKey}–${last.verseKey}`;

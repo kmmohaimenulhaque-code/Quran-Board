@@ -153,6 +153,18 @@ export const App: React.FC = () => {
     if (!deckRef.current) {
       deckRef.current = new DualBufferAudioDeck({
         onWordChange: (w) => useInstrumentStore.getState().setActiveWord(w),
+        onOfflineError: (_bundle, message) => {
+          clearWaqfTimer();
+          void bridge.releaseWakeLock();
+          const st = useInstrumentStore.getState();
+          if (st.phase !== 'IDLE') {
+            st.stopAndFlip();
+            window.setTimeout(() => {
+              useInstrumentStore.getState().finishFlipToControl();
+            }, 420);
+          }
+          showPeek(message, true);
+        },
         onAyahEnded: () => {
           clearWaqfTimer();
           const s = useInstrumentStore.getState();

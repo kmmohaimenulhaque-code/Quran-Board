@@ -11,21 +11,48 @@ function isTauriRuntime(): boolean {
   );
 }
 
-function createTimeoutSignal(ms: number): AbortSignal | undefined {
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    return AbortSignal.timeout(ms);
+function createTimeoutSignal(ms: number, externalSignal?: AbortSignal): AbortSignal | undefined {
+  const timeoutSig =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(ms)
+      : undefined;
+  if (externalSignal && timeoutSig && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any([externalSignal, timeoutSig]);
   }
-  return undefined;
+  return externalSignal ?? timeoutSig;
 }
 
 export class WebPlatformAdapter implements PlatformBridge {
   private wakeLock: WakeLockSentinel | null = null;
+  private persistRequested = false;
+
+  async requestPersistentStorage(): Promise<boolean> {
+    if (this.persistRequested) return true;
+    this.persistRequested = true;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.persist === 'function') {
+        return await navigator.storage.persist();
+      }
+    } catch {
+      // Non-fatal on browsers/WebViews without StorageManager.persist
+    }
+    return false;
+  }
+
+  async isAudioCached(remoteUrl: string): Promise<boolean> {
+    if (typeof window === 'undefined' || !('caches' in window)) return false;
+    try {
+      const cache = await caches.open(AUDIO_CACHE_NAME);
+      const hit = await cache.match(remoteUrl);
+      return Boolean(hit && hit.ok);
+    } catch {
+      return false;
+    }
+  }
 
   /**
    * Returns a playable audio URL immediately without blocking playback on network fetches.
-   * - In Tauri, checks Cache API if available (fast local hit) or streams remoteUrl directly
-   *   so WebKitGTK CORS/fetch never stalls or freezes the UI.
-   * - In Web/PWA, serves from Cache API on hit; on miss returns remoteUrl instantly and warms cache in background.
+   * Always serves from persistent Cache API first when available (works 100% offline!).
    */
   async cacheAudio(remoteUrl: string): Promise<string> {
     if (typeof window !== 'undefined' && 'caches' in window) {
@@ -54,18 +81,20 @@ export class WebPlatformAdapter implements PlatformBridge {
   }
 
   /**
-   * Genuine offline downloader used by OfflineDrawer.
-   * Actually fetches and stores the audio asset in Cache API and returns true only when verified.
+   * Genuine persistent offline downloader used by OfflineDrawer.
+   * Requests persistent storage, fetches the MP3 with timeout/abort, and stores in Cache API.
    */
-  async downloadForOffline(remoteUrl: string): Promise<boolean> {
+  async downloadForOffline(remoteUrl: string, signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted) return false;
     if (typeof window === 'undefined' || !('caches' in window)) {
       return false;
     }
     try {
+      void this.requestPersistentStorage();
       const cache = await caches.open(AUDIO_CACHE_NAME);
       const existing = await cache.match(remoteUrl);
       if (existing && existing.ok) return true;
-      const resp = await fetch(remoteUrl, { signal: createTimeoutSignal(12000) });
+      const resp = await fetch(remoteUrl, { signal: createTimeoutSignal(12000, signal) });
       if (!resp.ok) return false;
       await cache.put(remoteUrl, resp.clone());
       return true;

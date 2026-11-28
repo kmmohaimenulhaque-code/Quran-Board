@@ -359,3 +359,12 @@ test('v1.2.2 Linux Latency & Shamim Local Audio Fix Verification: no 4.5s waitFo
   const css = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
   assert.ok(css.includes('backdrop-filter: none !important'), 'styles.css must disable CPU backdrop-filter blur on drawers');
 });
+
+
+test('v1.2.3 Linux Web Audio Engine Verification: persistent AudioContext + decodeAudioData + AudioBufferSourceNode scoped strictly to Linux Tauri', () => {
+  const deck = fs.readFileSync(path.join(root, 'src/engine/audio-deck.ts'), 'utf8');
+  assert.ok(deck.includes('isLinuxTauriRuntime'), 'audio-deck must detect Linux Tauri desktop cleanly');
+  assert.ok(deck.includes('!/Android/i.test(ua)'), 'Linux Web Audio path must NOT alter Android');
+  assert.ok(deck.includes('decodeAudioData') && deck.includes('createBufferSource'), 'audio-deck must decode and play via Web Audio API on Linux');
+  assert.ok(deck.includes('bufferCache.size >= 16'), 'audio-deck must cap decoded AudioBuffer cache to bound RAM');
+});

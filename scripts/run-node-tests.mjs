@@ -327,3 +327,19 @@ test('v1.2.0 Bugfix Verification: Persistent Offline Cache (6 Single + 6 Full 11
   const sd = fs.readFileSync(path.join(root, 'src/ui/SurahDrawer.tsx'), 'utf8');
   assert.ok(sd.includes('surah-search-clear'), 'SurahDrawer must include one-tap clear button');
 });
+
+
+test('v1.2.1 Linux AppImage Fix Verification: bundleMediaFramework, deb GStreamer deps, Linux DMABUF guard, safe RockerPair', () => {
+  const tauriConf = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'));
+  assert.strictEqual(tauriConf.bundle?.linux?.appimage?.bundleMediaFramework, true, 'bundleMediaFramework must be true for Linux AppImage');
+  assert.ok(Array.isArray(tauriConf.bundle?.linux?.deb?.depends) && tauriConf.bundle.linux.deb.depends.includes('gstreamer1.0-plugins-base'), 'deb depends must include gstreamer1.0-plugins-base');
+
+  const libRs = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
+  assert.ok(libRs.includes('target_os = "linux"') && libRs.includes('WEBKIT_DISABLE_DMABUF_RENDERER'), 'lib.rs must set WEBKIT_DISABLE_DMABUF_RENDERER on Linux only');
+
+  const wf = fs.readFileSync(path.join(root, '.github/workflows/release-offline.yml'), 'utf8');
+  assert.ok(wf.includes('gstreamer1.0-plugins-base') && wf.includes('gstreamer1.0-plugins-good') && wf.includes('gstreamer1.0-plugins-ugly'), 'Linux workflow must install GStreamer plugins before tauri build');
+
+  const rocker = fs.readFileSync(path.join(root, 'src/ui/RockerPair.tsx'), 'utf8');
+  assert.ok(!rocker.includes('setPointerCapture'), 'RockerPair must not use setPointerCapture (WebKitGTK lockup)');
+});

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { playMechanicalClick } from '../engine/click-synth';
 
 interface RockerPairProps {
@@ -11,20 +11,32 @@ export const RockerPair: React.FC<RockerPairProps> = ({ label, onStep }) => {
   const fastRef = useRef<number | null>(null);
   const intervalRef = useRef<number | null>(null);
 
-  const clearTimers = () => {
+  const clearTimers = useCallback(() => {
     if (holdRef.current) window.clearTimeout(holdRef.current);
     if (fastRef.current) window.clearTimeout(fastRef.current);
     if (intervalRef.current) window.clearInterval(intervalRef.current);
     holdRef.current = null;
     fastRef.current = null;
     intervalRef.current = null;
-  };
+  }, []);
+
+  useEffect(() => clearTimers, [clearTimers]);
 
   const startHold = (delta: 1 | -1) => (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
+    clearTimers();
     playMechanicalClick();
     onStep(delta);
+
+    const stop = () => {
+      clearTimers();
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      window.removeEventListener('blur', stop);
+    };
+    window.addEventListener('pointerup', stop, { once: true });
+    window.addEventListener('pointercancel', stop, { once: true });
+    window.addEventListener('blur', stop, { once: true });
 
     holdRef.current = window.setTimeout(() => {
       intervalRef.current = window.setInterval(() => {

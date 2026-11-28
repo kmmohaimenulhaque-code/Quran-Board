@@ -14,6 +14,7 @@ const SURAHS = surahsJson as SurahMeta[];
 interface SurahDrawerProps {
   open: boolean;
   currentPage: number;
+  selectedSurahId: number | null;
   playbackMode: 'page' | 'surah';
   onChangeMode: (mode: 'page' | 'surah') => void;
   onSelectSurah: (surahId: number, startPage: number) => void;
@@ -23,6 +24,7 @@ interface SurahDrawerProps {
 export const SurahDrawer: React.FC<SurahDrawerProps> = ({
   open,
   currentPage,
+  selectedSurahId,
   playbackMode,
   onChangeMode,
   onSelectSurah,
@@ -31,13 +33,14 @@ export const SurahDrawer: React.FC<SurahDrawerProps> = ({
   const [query, setQuery] = useState('');
 
   const activeSurahId = useMemo(() => {
+    if (selectedSurahId !== null) return selectedSurahId;
     let match = SURAHS[0];
     for (const s of SURAHS) {
       if (s.startPage <= currentPage) match = s;
       else break;
     }
     return match.id;
-  }, [currentPage]);
+  }, [currentPage, selectedSurahId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

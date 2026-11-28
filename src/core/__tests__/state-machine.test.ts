@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { computeAyahEndedTransition, computePassResetAyahIdx } from '../state-machine';
+import {
+  computeAyahEndedTransition,
+  computePassResetAyahIdx,
+  computeWaqfPauseMs
+} from '../state-machine';
 
 describe('Full-Range Block Repetition FSM (1..N)', () => {
   it('steps sequentially through ayahs within a pass', () => {
@@ -43,5 +47,12 @@ describe('Full-Range Block Repetition FSM (1..N)', () => {
     expect(computePassResetAyahIdx([{ isBismillah: true }, { isBismillah: false }])).toBe(1);
     expect(computePassResetAyahIdx([{ isBismillah: false }, { isBismillah: false }])).toBe(0);
     expect(computePassResetAyahIdx([{ isBismillah: true }])).toBe(0);
+  });
+
+  it('enforces natural Tajweed waqf pause between consecutive ayahs and Surah transitions', () => {
+    expect(computeWaqfPauseMs({ surah: 1, isBismillah: false }, { surah: 1, isBismillah: false })).toBe(420);
+    expect(computeWaqfPauseMs({ surah: 2, isBismillah: true }, { surah: 2, isBismillah: false })).toBe(620);
+    expect(computeWaqfPauseMs({ surah: 112, isBismillah: false }, { surah: 113, isBismillah: true })).toBe(620);
+    expect(computeWaqfPauseMs(undefined, { surah: 1, isBismillah: false })).toBe(0);
   });
 });

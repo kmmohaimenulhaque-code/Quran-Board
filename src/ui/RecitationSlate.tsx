@@ -47,7 +47,6 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
     return () => window.removeEventListener('resize', updateMetrics);
   }, []);
 
-  // Reset paging when a new bundle sequence loads or pass resets
   useEffect(() => {
     setSlatePageIndex(0);
     setIsPaging(false);
@@ -131,36 +130,41 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
               const medallionLit =
                 aIdx < currentAyahIdx ||
                 (aIdx === currentAyahIdx && activeWordIndex >= bundle.words.length);
+
+              const wordNodes = bundle.words.map((w) => {
+                const isActive = aIdx === currentAyahIdx && w.wordIndex === activeWordIndex;
+                let cls = 'word-token';
+                if (
+                  aIdx < currentAyahIdx ||
+                  (aIdx === currentAyahIdx && w.wordIndex < activeWordIndex)
+                ) {
+                  cls += ' revealed';
+                } else if (isActive) {
+                  cls += ' active';
+                }
+                return (
+                  <React.Fragment key={`${bundle.verseKey}-${w.wordIndex}`}>
+                    <span ref={isActive ? activeWordRef : undefined} className={cls}>
+                      {w.textUthmani}
+                    </span>{' '}
+                  </React.Fragment>
+                );
+              });
+
+              if (bundle.isBismillah) {
+                return (
+                  <div key={bundle.verseKey} className="bismillah-block">
+                    {wordNodes}
+                  </div>
+                );
+              }
+
               return (
                 <React.Fragment key={bundle.verseKey}>
-                  {bundle.words.map((w) => {
-                    const isActive = aIdx === currentAyahIdx && w.wordIndex === activeWordIndex;
-                    let cls = 'word-token';
-                    if (
-                      aIdx < currentAyahIdx ||
-                      (aIdx === currentAyahIdx && w.wordIndex < activeWordIndex)
-                    ) {
-                      cls += ' revealed';
-                    } else if (isActive) {
-                      cls += ' active';
-                    }
-                    return (
-                      <React.Fragment key={`${bundle.verseKey}-${w.wordIndex}`}>
-                        <span ref={isActive ? activeWordRef : undefined} className={cls}>
-                          {w.textUthmani}
-                        </span>{' '}
-                      </React.Fragment>
-                    );
-                  })}
-                  {bundle.isBismillah ? (
-                    <br />
-                  ) : (
-                    <>
-                      <span className={`ayah-medallion ${medallionLit ? 'lit' : ''}`}>
-                        ﴿{toArabicDigits(bundle.ayah)}﴾
-                      </span>{' '}
-                    </>
-                  )}
+                  {wordNodes}
+                  <span className={`ayah-medallion ${medallionLit ? 'lit' : ''}`}>
+                    ﴿{toArabicDigits(bundle.ayah)}﴾
+                  </span>{' '}
                 </React.Fragment>
               );
             })}
@@ -169,15 +173,15 @@ export const RecitationSlate: React.FC<RecitationSlateProps> = ({
       </div>
 
       <div className="face-b-bezel">
-        <span className="telemetry-text">
+        <span className="telemetry-text telemetry-left">
           <span
             className={`slate-status-dot ${
               phase === 'PLAYING' ? 'playing' : phase === 'PAUSED' ? 'paused' : ''
             }`}
           />
-          {telemetryLeft}
+          <span className="telemetry-label">{telemetryLeft}</span>
         </span>
-        <span className="telemetry-text">{telemetryRight}</span>
+        <span className="telemetry-text telemetry-right">{telemetryRight}</span>
       </div>
     </section>
   );

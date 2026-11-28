@@ -5,15 +5,17 @@ export const SHAMIM_BISMILLAH_CLIP = { startMs: 7500, endMs: 15000 } as const;
 
 /**
  * Strips any Bismillah prefix prepended by AlQuran Cloud onto Ayah 1
- * of Surahs other than Al-Fatihah (1) and At-Tawbah (9).
+ * of Surahs other than Al-Fatihah (1) and At-Tawbah (9), including
+ * optional leading BOM (\uFEFF) or Rub el Hizb (۞) markers.
  */
 export function stripLeadingBismillah(textUthmani: string, surah: number, ayah: number): string {
-  if (surah === 1 || surah === 9 || ayah !== 1) return textUthmani.trim();
-  const cleaned = textUthmani
-    .replace(/^\s*بِسْمِ\s+ٱ?للَّهِ\s+ٱ?لرَّحْمَٰنِ\s+ٱ?لرَّحِيمِ\s*/u, '')
-    .replace(/^\s*بسم\s+الله\s+الرحمن\s+الرحيم\s*/u, '')
+  const normalized = textUthmani.replace(/^\uFEFF/, '').trim();
+  if (surah === 1 || surah === 9 || ayah !== 1) return normalized;
+  const cleaned = normalized
+    .replace(/^(?:۞\s*)?بِسْمِ\s+ٱ?للَّهِ\s+ٱ?لرَّحْمَٰنِ\s+ٱ?لرَّحِيمِ\s*/u, '')
+    .replace(/^(?:۞\s*)?بسم\s+الله\s+الرحمن\s+الرحيم\s*/u, '')
     .trim();
-  return cleaned.length > 0 ? cleaned : textUthmani.trim();
+  return cleaned.length > 0 ? cleaned : normalized;
 }
 
 /**

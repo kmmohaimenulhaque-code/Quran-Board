@@ -13,6 +13,7 @@ interface OfflineDrawerProps {
   open: boolean;
   reciters: Reciter[];
   currentPage: number;
+  selectedSurahId: number | null;
   bridge: PlatformBridge;
   onSelectReciter: (id: number) => void;
   onClose: () => void;
@@ -22,30 +23,56 @@ export const OfflineDrawer: React.FC<OfflineDrawerProps> = ({
   open,
   reciters,
   currentPage,
+  selectedSurahId,
   bridge,
   onSelectReciter,
   onClose
 }) => {
-  const [progress, setProgress] = useState<Record<number, number>>({});
-  const [statusMap, setStatusMap] = useState<Record<number, string>>({});
+  const [progress, setProgress] = useState<Record<string, number>>({});
+  const [statusMap, setStatusMap] = useState<Record<string, string>>({});
 
-  let curSurah = SURAHS[0];
-  for (const s of SURAHS) {
-    if (s.startPage <= currentPage) curSurah = s;
-    else break;
+  let curSurah = selectedSurahId ? SURAHS[selectedSurahId - 1] ?? SURAHS[0] : SURAHS[0];
+  if (!selectedSurahId) {
+    for (const s of SURAHS) {
+      if (s.startPage <= currentPage) curSurah = s;
+      else break;
+    }
   }
 
   const handleCacheSurah = async (rec: Reciter) => {
-    setStatusMap((prev) => ({ ...prev, [rec.id]: `Caching ${curSurah.english}…` }));
+    const key = `${rec.id}-${curSurah.id}`;
+    if (rec.providerMode === 'local-baqarah' && curSurah.id === 2) {
+      setProgress((prev) => ({ ...prev, [key]: 100 }));
+      setStatusMap((prev) => ({ ...prev, [key]: 'Embedded Offline · Al-Baqarah 2:1–10' }));
+      return;
+    }
+
+    setProgress((prev) => ({ ...prev, [key]: 0 }));
+    setStatusMap((prev) => ({ ...prev, [key]: `Caching ${curSurah.english}…` }));
+    let succeeded = 0;
     try {
+      // Cache Bismillah first for Surahs other than 1 and 9
+      if (curSurah.id !== 1 && curSurah.id !== 9) {
+        const bisUrl = `https://everyayah.com/data/${rec.everyAyahDir}/001001.mp3`;
+        await bridge.downloadForOffline(bisUrl);
+      }
       for (let a = 1; a <= curSurah.ayahs; a++) {
         const url = `https://everyayah.com/data/${rec.everyAyahDir}/${pad3(curSurah.id)}${pad3(a)}.mp3`;
-        await bridge.cacheAudio(url);
-        setProgress((prev) => ({ ...prev, [rec.id]: Math.round((a / curSurah.ayahs) * 100) }));
+        const ok = await bridge.downloadForOffline(url);
+        if (ok) succeeded++;
+        setProgress((prev) => ({ ...prev, [key]: Math.round((a / curSurah.ayahs) * 100) }));
       }
-      setStatusMap((prev) => ({ ...prev, [rec.id]: `Offline OK · ${curSurah.english}` }));
+      if (succeeded === curSurah.ayahs) {
+        setStatusMap((prev) => ({ ...prev, [key]: `Offline OK · ${curSurah.english}` }));
+      } else if (succeeded > 0) {
+        setStatusMap((prev) => ({ ...prev, [key]: `Partial (${succeeded}/${curSurah.ayahs}) · Retry online` }));
+      } else {
+        setProgress((prev) => ({ ...prev, [key]: 0 }));
+        setStatusMap((prev) => ({ ...prev, [key]: 'Unavailable offline — use Opus Pack or retry online' }));
+      }
     } catch {
-      setStatusMap((prev) => ({ ...prev, [rec.id]: 'Connect once to cache' }));
+      setProgress((prev) => ({ ...prev, [key]: 0 }));
+      setStatusMap((prev) => ({ ...prev, [key]: 'Connect once to cache' }));
     }
   };
 
@@ -71,9 +98,10 @@ export const OfflineDrawer: React.FC<OfflineDrawerProps> = ({
       </div>
       <div className="surah-list">
         {reciters.map((r) => {
-          const pct = progress[r.id] ?? 0;
+          const key = `${r.id}-${curSurah.id}`;
+          const pct = progress[key] ?? 0;
           const note =
-            statusMap[r.id] ??
+            statusMap[key] ??
             (r.id === 1
               ? 'Embedded 2:1–10 · ~26 MB Opus full Baqarah'
               : 'EveryAyah Full 114 Surahs · ~260 MB at 24k Opus');

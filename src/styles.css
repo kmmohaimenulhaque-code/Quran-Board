@@ -996,3 +996,42 @@
     .slate-text-viewport.paging {
       opacity: 0.72;
     }
+
+
+    /* v1.1.1 Centered Own-Line Bismillah on Multi-Surah Pages */
+    .bismillah-block {
+      display: block;
+      width: 100%;
+      text-align: center;
+      text-align-last: center;
+    }
+
+    /* v1.1.1 Single-Line Non-Wrapping Face B Telemetry */
+    .face-b-bezel {
+      gap: 8px;
+      flex-wrap: nowrap;
+    }
+
+    .face-b-bezel .telemetry-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: clamp(9.5px, 2.5vw, 11px);
+    }
+
+    .face-b-bezel .telemetry-left {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .face-b-bezel .telemetry-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .face-b-bezel .telemetry-right {
+      flex: 0 0 auto;
+    }

@@ -253,3 +253,49 @@ test('v1.1.0 Bugfix Verification: 11 per-ayah Shamim clips + Pass 2 Bismillah sk
   assert.ok(wa.includes('isTauriRuntime'), 'web-adapter must bypass blocking fetch().blob() in Tauri WebKitGTK');
   assert.ok(app.includes('cancelPrefetchIfActive'), 'App.tsx must allow cancelling PREFETCHING');
 });
+
+
+test('v1.1.1 Bugfix Verification: Tajweed waqf pause, multi-Surah exact slicing (P.604), Full Surah Mode, centered Bismillah, single-line telemetry, drawer auto-pause, real offline caching', () => {
+  // 1. Waqf pause between consecutive ayahs (fixes Al-Fatihah 1:6 -> 1:7 for all reciters)
+  const sm = fs.readFileSync(path.join(root, 'src/core/state-machine.ts'), 'utf8');
+  assert.ok(sm.includes('computeWaqfPauseMs'), 'state-machine must define computeWaqfPauseMs');
+  assert.ok(sm.includes('setPageRange'), 'state-machine must define atomic setPageRange');
+  const app = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8');
+  assert.ok(app.includes('waqfTimerRef') && app.includes('computeWaqfPauseMs'), 'App.tsx must enforce cancellable waqf pause');
+
+  // 2. Multi-Surah page exact slicing on Page 604 (112: 1..4, 113: 5..9, 114: 10..15)
+  const mushaf = JSON.parse(fs.readFileSync(path.join(root, 'src/assets/data/mushaf-604.json'), 'utf8'));
+  const p604 = mushaf['604'];
+  const findSlice = (verses, sid) => {
+    let first = -1, last = -1;
+    verses.forEach((v, i) => {
+      if (v.surah === sid) { if (first === -1) first = i + 1; last = i + 1; }
+    });
+    return { first, last };
+  };
+  assert.deepStrictEqual(findSlice(p604, 112), { first: 1, last: 4 });
+  assert.deepStrictEqual(findSlice(p604, 113), { first: 5, last: 9 });
+  assert.deepStrictEqual(findSlice(p604, 114), { first: 10, last: 15 });
+  const mi = fs.readFileSync(path.join(root, 'src/core/mushaf-index.ts'), 'utf8');
+  assert.ok(mi.includes('getSurahSliceOnPage'), 'mushaf-index must export getSurahSliceOnPage');
+
+  // 3. Full Surah Mode wired end-to-end
+  const prov = fs.readFileSync(path.join(root, 'src/engine/public-provider.ts'), 'utf8');
+  assert.ok(prov.includes('getSurahVerses'), 'public-provider must implement getSurahVerses');
+  assert.ok(app.includes("playbackMode === 'surah'") && app.includes('provider.getSurahVerses'), 'App.tsx must wire Full Surah Mode');
+
+  // 4. Centered own-line Bismillah + hardened BOM/Hizb stripping + single-line telemetry
+  const slate = fs.readFileSync(path.join(root, 'src/ui/RecitationSlate.tsx'), 'utf8');
+  assert.ok(slate.includes('bismillah-block'), 'RecitationSlate must render Bismillah in centered .bismillah-block');
+  const css = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8');
+  assert.ok(css.includes('.bismillah-block') && css.includes('.telemetry-label'), 'styles.css must style .bismillah-block and non-wrapping telemetry');
+  const bis = fs.readFileSync(path.join(root, 'src/core/bismillah.ts'), 'utf8');
+  assert.ok(bis.includes('\\uFEFF') || bis.includes('\uFEFF'), 'bismillah.ts must strip leading BOM');
+
+  // 5. Drawer auto-pause & genuine OfflineDrawer downloadForOffline()
+  assert.ok(app.includes('pausedByDrawerRef'), 'App.tsx must pause playback when opening drawers');
+  const wa = fs.readFileSync(path.join(root, 'src/platform/web-adapter.ts'), 'utf8');
+  assert.ok(wa.includes('downloadForOffline'), 'web-adapter must implement genuine downloadForOffline');
+  const od = fs.readFileSync(path.join(root, 'src/ui/OfflineDrawer.tsx'), 'utf8');
+  assert.ok(od.includes('downloadForOffline') && od.includes('selectedSurahId'), 'OfflineDrawer must use downloadForOffline and selectedSurahId');
+});

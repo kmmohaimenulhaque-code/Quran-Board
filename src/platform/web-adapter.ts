@@ -23,16 +23,11 @@ export class WebPlatformAdapter implements PlatformBridge {
 
   /**
    * Returns a playable audio URL immediately without blocking playback on network fetches.
-   * - In Tauri (Linux WebKitGTK / Android / macOS / Windows), streams remote URLs directly
+   * - In Tauri, checks Cache API if available (fast local hit) or streams remoteUrl directly
    *   so WebKitGTK CORS/fetch never stalls or freezes the UI.
-   * - In Web/PWA, serves from Cache API immediately on hit; on miss returns remoteUrl
-   *   instantly and warms the cache in the background with a 5s timeout.
+   * - In Web/PWA, serves from Cache API on hit; on miss returns remoteUrl instantly and warms cache in background.
    */
   async cacheAudio(remoteUrl: string): Promise<string> {
-    if (isTauriRuntime()) {
-      return remoteUrl;
-    }
-
     if (typeof window !== 'undefined' && 'caches' in window) {
       try {
         const cache = await caches.open(AUDIO_CACHE_NAME);
@@ -41,20 +36,42 @@ export class WebPlatformAdapter implements PlatformBridge {
           const blob = await hit.blob();
           return URL.createObjectURL(blob);
         }
-        // Cache miss: warm in background without blocking playback or 3D flip
-        void fetch(remoteUrl, { signal: createTimeoutSignal(5000) })
-          .then((resp) => {
-            if (resp.ok) return cache.put(remoteUrl, resp.clone());
-            return undefined;
-          })
-          .catch(() => {
-            // Non-fatal background cache miss
-          });
+        if (!isTauriRuntime()) {
+          void fetch(remoteUrl, { signal: createTimeoutSignal(5000) })
+            .then((resp) => {
+              if (resp.ok) return cache.put(remoteUrl, resp.clone());
+              return undefined;
+            })
+            .catch(() => {
+              // Non-fatal background cache miss
+            });
+        }
       } catch {
         // Fallback to direct URL
       }
     }
     return remoteUrl;
+  }
+
+  /**
+   * Genuine offline downloader used by OfflineDrawer.
+   * Actually fetches and stores the audio asset in Cache API and returns true only when verified.
+   */
+  async downloadForOffline(remoteUrl: string): Promise<boolean> {
+    if (typeof window === 'undefined' || !('caches' in window)) {
+      return false;
+    }
+    try {
+      const cache = await caches.open(AUDIO_CACHE_NAME);
+      const existing = await cache.match(remoteUrl);
+      if (existing && existing.ok) return true;
+      const resp = await fetch(remoteUrl, { signal: createTimeoutSignal(12000) });
+      if (!resp.ok) return false;
+      await cache.put(remoteUrl, resp.clone());
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async cacheJson<T>(key: string, remoteUrl: string): Promise<T> {

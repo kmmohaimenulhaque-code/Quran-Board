@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import recitersJson from './assets/data/reciters.json';
 import surahsJson from './assets/data/surahs-114.json';
 import type { Reciter, VerseEntry } from './core/types';
-import { formatTelemetryRange, slicePageVerses } from './core/mushaf-index';
+import { formatTelemetryRange, getSurahSliceOnPage, slicePageVerses } from './core/mushaf-index';
 import { expandVersesWithBismillah } from './core/bismillah';
-import { useInstrumentStore } from './core/state-machine';
+import { computeWaqfPauseMs, useInstrumentStore } from './core/state-machine';
 import { DualBufferAudioDeck } from './engine/audio-deck';
 import { PublicRecitationProvider } from './engine/public-provider';
 import { playMechanicalClick } from './engine/click-synth';
@@ -26,31 +26,76 @@ export const App: React.FC = () => {
   const [peekError, setPeekError] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [playbackMode, setPlaybackMode] = useState<'page' | 'surah'>('page');
+  const [selectedSurahId, setSelectedSurahId] = useState<number | null>(null);
   const [openDrawer, setOpenDrawer] = useState<'none' | 'surahs' | 'offline'>('none');
   const [localMp3Url, setLocalMp3Url] = useState<string | null>(null);
 
   const peekTimer = useRef<number | null>(null);
   const longPressTimer = useRef<number | null>(null);
+  const waqfTimerRef = useRef<number | null>(null);
   const didLongPress = useRef(false);
+  const pausedByDrawerRef = useRef(false);
   const startTokenRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bridge = useMemo(() => new WebPlatformAdapter(), []);
   const provider = useMemo(() => new PublicRecitationProvider(bridge), [bridge]);
-  const [currentPageVerses, setCurrentPageVerses] = useState<VerseEntry[]>(
+  const [activeScopeVerses, setActiveScopeVerses] = useState<VerseEntry[]>(
     () => provider.getCachedPageVerses(useInstrumentStore.getState().page) ?? []
   );
 
+  const clearWaqfTimer = useCallback(() => {
+    if (waqfTimerRef.current !== null) {
+      window.clearTimeout(waqfTimerRef.current);
+      waqfTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     void provider.cacheAllReciterBismillahs(RECITERS);
-  }, [provider]);
+    return () => clearWaqfTimer();
+  }, [provider, clearWaqfTimer]);
 
-  // Keep Face A verse range synced in real time with the actual Surah Ayah numbers on the active page
+  // Keep Face A verse range synced in real time with either the active Page or active Full Surah
   useEffect(() => {
     let cancelled = false;
+
+    if (playbackMode === 'surah' && selectedSurahId !== null) {
+      const cachedSurah = provider.getCachedSurahVerses(selectedSurahId);
+      if (cachedSurah && cachedSurah.length > 0) {
+        setActiveScopeVerses(cachedSurah);
+        if (useInstrumentStore.getState().pageMaxVerse !== cachedSurah.length) {
+          useInstrumentStore.getState().setPageRange(store.page, cachedSurah.length, 1, cachedSurah.length);
+        }
+        return;
+      }
+      void provider
+        .getSurahVerses(selectedSurahId)
+        .then((vs) => {
+          if (cancelled || vs.length === 0) return;
+          setActiveScopeVerses(vs);
+          useInstrumentStore.getState().setPageRange(store.page, vs.length, 1, vs.length);
+        })
+        .catch(() => {
+          // Offline fallback
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const cached = provider.getCachedPageVerses(store.page);
     if (cached && cached.length > 0) {
-      setCurrentPageVerses(cached);
+      setActiveScopeVerses(cached);
+      if (selectedSurahId !== null) {
+        const slice = getSurahSliceOnPage(cached, selectedSurahId);
+        if (slice) {
+          useInstrumentStore
+            .getState()
+            .setPageRange(store.page, cached.length, slice.rangeStart, slice.rangeEnd);
+          return;
+        }
+      }
       if (useInstrumentStore.getState().pageMaxVerse !== cached.length) {
         useInstrumentStore.getState().setPage(store.page, cached.length);
       }
@@ -61,17 +106,26 @@ export const App: React.FC = () => {
       .getPageVerses(store.page)
       .then((vs) => {
         if (cancelled || vs.length === 0) return;
-        setCurrentPageVerses(vs);
+        setActiveScopeVerses(vs);
+        if (selectedSurahId !== null) {
+          const slice = getSurahSliceOnPage(vs, selectedSurahId);
+          if (slice) {
+            useInstrumentStore
+              .getState()
+              .setPageRange(store.page, vs.length, slice.rangeStart, slice.rangeEnd);
+            return;
+          }
+        }
         useInstrumentStore.getState().setPage(store.page, vs.length);
       })
       .catch(() => {
-        // Offline page not cached yet; keep existing range gracefully
+        // Offline page not cached yet
       });
 
     return () => {
       cancelled = true;
     };
-  }, [provider, store.page]);
+  }, [provider, store.page, playbackMode, selectedSurahId]);
 
   const deckRef = useRef<DualBufferAudioDeck | null>(null);
 
@@ -79,22 +133,57 @@ export const App: React.FC = () => {
     setBezelPeek(msg);
     setPeekError(isErr);
     if (peekTimer.current) window.clearTimeout(peekTimer.current);
-    peekTimer.current = window.setTimeout(() => setBezelPeek(null), 2400);
+    peekTimer.current = window.setTimeout(() => setBezelPeek(null), 2600);
   }, []);
+
+  const showScopePeek = useCallback(
+    (verses: VerseEntry[], pageNum: number, rStart: number, rEnd: number) => {
+      const sliced = slicePageVerses(verses, rStart, rEnd);
+      if (sliced.length === 0) return;
+      const span = formatTelemetryRange(sliced);
+      const firstSurah = SURAHS[sliced[0].surah - 1];
+      const sameSurah = sliced[0].surah === sliced[sliced.length - 1].surah;
+      const label = sameSurah && firstSurah ? `${firstSurah.english} · ${span}` : span;
+      showPeek(`P.${String(pageNum).padStart(3, '0')} · ${label}`);
+    },
+    [showPeek]
+  );
 
   const getDeck = useCallback(() => {
     if (!deckRef.current) {
       deckRef.current = new DualBufferAudioDeck({
         onWordChange: (w) => useInstrumentStore.getState().setActiveWord(w),
         onAyahEnded: () => {
+          clearWaqfTimer();
           const s = useInstrumentStore.getState();
+          const endedBundle = s.bundles[s.currentAyahIdx];
+          // Light up the completed ayah's medallion immediately during the waqf breath
+          if (endedBundle) {
+            s.setActiveWord(endedBundle.words.length + 1);
+          }
+
+          const isLastInPass = s.currentAyahIdx >= s.bundles.length - 1;
+          if (!isLastInPass) {
+            const nextBundle = s.bundles[s.currentAyahIdx + 1];
+            const waqfMs = computeWaqfPauseMs(endedBundle, nextBundle);
+            waqfTimerRef.current = window.setTimeout(() => {
+              waqfTimerRef.current = null;
+              const latest = useInstrumentStore.getState();
+              if (latest.phase !== 'PLAYING') return;
+              const res = latest.advanceAyah();
+              if (res.nextPhase === 'PLAYING') {
+                const b = latest.bundles[res.nextAyahIdx];
+                const nextB = latest.bundles[res.nextAyahIdx + 1];
+                if (b) void deckRef.current?.play(b, nextB);
+              }
+            }, waqfMs);
+            return;
+          }
+
           const res = s.advanceAyah();
-          if (res.nextPhase === 'PLAYING') {
-            const b = s.bundles[res.nextAyahIdx];
-            const nextB = s.bundles[res.nextAyahIdx + 1];
-            if (b) void deckRef.current?.play(b, nextB);
-          } else if (res.nextPhase === 'PASS_RESET') {
-            window.setTimeout(() => {
+          if (res.nextPhase === 'PASS_RESET') {
+            waqfTimerRef.current = window.setTimeout(() => {
+              waqfTimerRef.current = null;
               const latest = useInstrumentStore.getState();
               if (latest.phase !== 'PASS_RESET') return;
               latest.finishPassReset();
@@ -102,7 +191,7 @@ export const App: React.FC = () => {
               const startIdx = updated.currentAyahIdx;
               const first = updated.bundles[startIdx];
               if (first) void deckRef.current?.play(first, updated.bundles[startIdx + 1]);
-            }, 450);
+            }, 520);
           } else {
             void bridge.releaseWakeLock();
           }
@@ -110,7 +199,7 @@ export const App: React.FC = () => {
       });
     }
     return deckRef.current;
-  }, [bridge]);
+  }, [bridge, clearWaqfTimer]);
 
   const cancelPrefetchIfActive = useCallback(() => {
     const s = useInstrumentStore.getState();
@@ -122,6 +211,8 @@ export const App: React.FC = () => {
 
   const handleStart = useCallback(async () => {
     setOpenDrawer('none');
+    pausedByDrawerRef.current = false;
+    clearWaqfTimer();
     const s = useInstrumentStore.getState();
     if (s.phase !== 'IDLE') return;
     const token = ++startTokenRef.current;
@@ -129,7 +220,10 @@ export const App: React.FC = () => {
     playMechanicalClick(true);
     s.beginPrefetch();
     try {
-      const verses = await provider.getPageVerses(s.page);
+      const verses =
+        playbackMode === 'surah' && selectedSurahId !== null
+          ? await provider.getSurahVerses(selectedSurahId)
+          : await provider.getPageVerses(s.page);
       if (startTokenRef.current !== token) return;
       if (verses.length === 0) {
         throw new Error(`Page ${s.page} not available offline yet`);
@@ -155,24 +249,38 @@ export const App: React.FC = () => {
       s.failPrefetch(msg);
       showPeek(msg, true);
     }
-  }, [bridge, getDeck, localMp3Url, provider, showPeek]);
+  }, [bridge, clearWaqfTimer, getDeck, localMp3Url, playbackMode, provider, selectedSurahId, showPeek]);
 
   const handleTogglePause = useCallback(() => {
     const s = useInstrumentStore.getState();
     playMechanicalClick(true);
     if (s.phase === 'PLAYING') {
+      clearWaqfTimer();
       getDeck().pause();
       s.togglePause();
       void bridge.releaseWakeLock();
     } else if (s.phase === 'PAUSED') {
       s.togglePause();
       void bridge.acquireWakeLock();
-      void getDeck().resume();
+      const latest = useInstrumentStore.getState();
+      const curBundle = latest.bundles[latest.currentAyahIdx];
+      // If paused during a waqf pause right after an ayah finished, advance to next ayah cleanly
+      if (curBundle && latest.activeWordIndex > curBundle.words.length) {
+        const res = latest.advanceAyah();
+        if (res.nextPhase === 'PLAYING') {
+          const b = latest.bundles[res.nextAyahIdx];
+          if (b) void getDeck().play(b, latest.bundles[res.nextAyahIdx + 1]);
+        }
+      } else {
+        void getDeck().resume();
+      }
     }
-  }, [bridge, getDeck]);
+  }, [bridge, clearWaqfTimer, getDeck]);
 
   const handleStopAndFlip = useCallback(() => {
     setOpenDrawer('none');
+    pausedByDrawerRef.current = false;
+    clearWaqfTimer();
     startTokenRef.current += 1;
     const s = useInstrumentStore.getState();
     if (s.phase === 'IDLE') return;
@@ -187,7 +295,41 @@ export const App: React.FC = () => {
     window.setTimeout(() => {
       useInstrumentStore.getState().finishFlipToControl();
     }, 560);
+  }, [bridge, clearWaqfTimer, getDeck]);
+
+  const handleCloseDrawer = useCallback(() => {
+    setOpenDrawer('none');
+    if (pausedByDrawerRef.current) {
+      pausedByDrawerRef.current = false;
+      const s = useInstrumentStore.getState();
+      if (s.phase === 'PAUSED') {
+        s.togglePause();
+        void bridge.acquireWakeLock();
+        void getDeck().resume();
+      }
+    }
   }, [bridge, getDeck]);
+
+  const handleToggleDrawer = useCallback(
+    (target: 'surahs' | 'offline') => {
+      playMechanicalClick();
+      cancelPrefetchIfActive();
+      if (openDrawer === target) {
+        handleCloseDrawer();
+        return;
+      }
+      const s = useInstrumentStore.getState();
+      if (s.phase === 'PLAYING') {
+        clearWaqfTimer();
+        getDeck().pause();
+        s.togglePause();
+        void bridge.releaseWakeLock();
+        pausedByDrawerRef.current = true;
+      }
+      setOpenDrawer(target);
+    },
+    [bridge, cancelPrefetchIfActive, clearWaqfTimer, getDeck, handleCloseDrawer, openDrawer]
+  );
 
   const handleCycleSpeed = useCallback(() => {
     playMechanicalClick();
@@ -227,13 +369,17 @@ export const App: React.FC = () => {
       .filter((b) => !b.isBismillah)
       .map((b) => ({ verseKey: b.verseKey, surah: b.surah, ayah: b.ayah, textUthmani: '' }))
   );
+  const scopeTag =
+    playbackMode === 'surah' && selectedSurahId !== null
+      ? `S.${String(selectedSurahId).padStart(3, '0')}`
+      : `P.${String(store.page).padStart(2, '0')}`;
   const telemetryLeft = `PASS ${String(store.currentPass).padStart(2, '0')}/${String(
     store.repetition
-  ).padStart(2, '0')} · P.${String(store.page).padStart(2, '0')} · ${verseSpan}`;
+  ).padStart(2, '0')} · ${scopeTag} · ${verseSpan}`;
 
-  // Map 1-based on-page indices to actual Surah Ayah numbers for Face A LEDs
-  const displayRangeStart = currentPageVerses[store.rangeStart - 1]?.ayah ?? store.rangeStart;
-  const displayRangeEnd = currentPageVerses[store.rangeEnd - 1]?.ayah ?? store.rangeEnd;
+  // Map 1-based scope indices to actual Surah Ayah numbers for Face A LEDs
+  const displayRangeStart = activeScopeVerses[store.rangeStart - 1]?.ayah ?? store.rangeStart;
+  const displayRangeEnd = activeScopeVerses[store.rangeEnd - 1]?.ayah ?? store.rangeEnd;
 
   const edgeClassName =
     store.phase === 'PREFETCHING'
@@ -252,16 +398,8 @@ export const App: React.FC = () => {
         edgeClassName={edgeClassName}
         onSelectFaceA={handleStopAndFlip}
         onSelectFaceB={handleStart}
-        onToggleSurahs={() => {
-          playMechanicalClick();
-          cancelPrefetchIfActive();
-          setOpenDrawer((d) => (d === 'surahs' ? 'none' : 'surahs'));
-        }}
-        onToggleOffline={() => {
-          playMechanicalClick();
-          cancelPrefetchIfActive();
-          setOpenDrawer((d) => (d === 'offline' ? 'none' : 'offline'));
-        }}
+        onToggleSurahs={() => handleToggleDrawer('surahs')}
+        onToggleOffline={() => handleToggleDrawer('offline')}
         onEdgePressStart={() => {
           didLongPress.current = false;
           if (store.phase !== 'IDLE') {
@@ -282,35 +420,64 @@ export const App: React.FC = () => {
             <SurahDrawer
               open={openDrawer === 'surahs'}
               currentPage={store.page}
+              selectedSurahId={selectedSurahId}
               playbackMode={playbackMode}
               onChangeMode={(m) => {
                 playMechanicalClick();
                 setPlaybackMode(m);
+                if (m === 'surah' && selectedSurahId === null) {
+                  // Default Full Surah Mode to the Surah at the start of the current page
+                  const firstOnPage = activeScopeVerses[0]?.surah ?? 1;
+                  setSelectedSurahId(firstOnPage);
+                }
               }}
               onSelectSurah={(surahId, startPage) => {
                 playMechanicalClick(true);
+                pausedByDrawerRef.current = false;
                 if (store.phase !== 'IDLE') handleStopAndFlip();
-                const cached = provider.getCachedPageVerses(startPage);
-                store.setPage(startPage, cached?.length ?? store.pageMaxVerse);
-                if (cached) setCurrentPageVerses(cached);
+                setSelectedSurahId(surahId);
                 const sr = SURAHS[surahId - 1];
-                if (sr) showPeek(`P.${String(startPage).padStart(3, '0')} · ${sr.english} (${sr.ayahs}v)`);
+
+                if (playbackMode === 'surah') {
+                  const cachedSurah = provider.getCachedSurahVerses(surahId);
+                  const totalAyahs = cachedSurah?.length ?? sr?.ayahs ?? store.pageMaxVerse;
+                  store.setPageRange(startPage, totalAyahs, 1, totalAyahs);
+                  if (cachedSurah) setActiveScopeVerses(cachedSurah);
+                  if (sr) showPeek(`FULL SURAH · ${sr.english} (1–${sr.ayahs})`);
+                } else {
+                  const cachedPage = provider.getCachedPageVerses(startPage);
+                  if (cachedPage && cachedPage.length > 0) {
+                    setActiveScopeVerses(cachedPage);
+                    const slice = getSurahSliceOnPage(cachedPage, surahId);
+                    if (slice) {
+                      store.setPageRange(startPage, cachedPage.length, slice.rangeStart, slice.rangeEnd);
+                      showScopePeek(cachedPage, startPage, slice.rangeStart, slice.rangeEnd);
+                    } else {
+                      store.setPage(startPage, cachedPage.length);
+                      if (sr) showPeek(`P.${String(startPage).padStart(3, '0')} · ${sr.english} (${sr.ayahs}v)`);
+                    }
+                  } else {
+                    store.setPage(startPage, store.pageMaxVerse);
+                    if (sr) showPeek(`P.${String(startPage).padStart(3, '0')} · ${sr.english} (${sr.ayahs}v)`);
+                  }
+                }
               }}
-              onClose={() => setOpenDrawer('none')}
+              onClose={handleCloseDrawer}
             />
             <OfflineDrawer
               open={openDrawer === 'offline'}
               reciters={RECITERS}
               currentPage={store.page}
+              selectedSurahId={selectedSurahId}
               bridge={bridge}
               onSelectReciter={(id) => {
                 playMechanicalClick();
                 store.setReciter(id);
                 const r = RECITERS[id - 1];
                 if (r) showPeek(`${String(r.id).padStart(2, '0')} · ${r.name}`);
-                setOpenDrawer('none');
+                handleCloseDrawer();
               }}
-              onClose={() => setOpenDrawer('none')}
+              onClose={handleCloseDrawer}
             />
           </>
         }
@@ -332,11 +499,20 @@ export const App: React.FC = () => {
           }}
           onStepPage={(d) => {
             const nextPage = Math.max(1, Math.min(604, store.page + d));
+            setSelectedSurahId(null);
+            if (playbackMode === 'surah') setPlaybackMode('page');
             const cached = provider.getCachedPageVerses(nextPage);
             store.setPage(nextPage, cached?.length ?? store.pageMaxVerse);
-            if (cached) setCurrentPageVerses(cached);
+            if (cached && cached.length > 0) {
+              setActiveScopeVerses(cached);
+              showScopePeek(cached, nextPage, 1, cached.length);
+            }
           }}
-          onStepRange={(d) => store.stepRange(d)}
+          onStepRange={(d) => {
+            store.stepRange(d);
+            const next = useInstrumentStore.getState();
+            showScopePeek(activeScopeVerses, next.page, next.rangeStart, next.rangeEnd);
+          }}
           onFocusRange={(f) => store.setRangeFocus(f)}
           onStepRepetition={(d) => store.setRepetition(store.repetition + d)}
           onOpenMp3Slot={() => {

@@ -48,12 +48,29 @@ export function computePassResetAyahIdx(
   return bundles[0]?.isBismillah && bundles.length > 1 ? 1 : 0;
 }
 
+/**
+ * Computes the natural real-time Tajweed waqf pause (in ms) between two consecutive ayahs.
+ * Independent of playbackRate so even at 2x speed, ayahs (e.g., Al-Fatihah 1:6 -> 1:7)
+ * have a clear, dignified breath pause instead of slamming together.
+ */
+export function computeWaqfPauseMs(
+  endedBundle: Pick<AyahBundle, 'surah' | 'isBismillah'> | undefined,
+  nextBundle: Pick<AyahBundle, 'surah' | 'isBismillah'> | undefined
+): number {
+  if (!endedBundle || !nextBundle) return 0;
+  if (endedBundle.isBismillah || nextBundle.isBismillah || endedBundle.surah !== nextBundle.surah) {
+    return 620;
+  }
+  return 420;
+}
+
 export interface InstrumentStore extends PlaybackState {
   reciterCount: number;
   pageMaxVerse: number;
   setReciter: (id: number) => void;
   stepReciter: (delta: number) => void;
   setPage: (page: number, maxVerse: number) => void;
+  setPageRange: (page: number, maxVerse: number, rangeStart: number, rangeEnd: number) => void;
   setRangeFocus: (focus: RangeFocus) => void;
   stepRange: (delta: number) => void;
   setRepetition: (rep: number) => void;
@@ -100,7 +117,6 @@ export const useInstrumentStore = create<InstrumentStore>((set, get) => ({
     set((s) => {
       const clampedPage = clampPage(page);
       const safeMax = Math.max(1, Math.trunc(maxVerse));
-      // When navigating to a new page, select the full verse span of that page by default
       if (clampedPage !== s.page) {
         return {
           page: clampedPage,
@@ -109,7 +125,6 @@ export const useInstrumentStore = create<InstrumentStore>((set, get) => ({
           rangeEnd: safeMax
         };
       }
-      // Same page (e.g., async verse count resolved): keep full-page selection if previously full
       if (s.rangeStart === 1 && s.rangeEnd === s.pageMaxVerse) {
         return {
           page: clampedPage,
@@ -119,6 +134,14 @@ export const useInstrumentStore = create<InstrumentStore>((set, get) => ({
         };
       }
       const { rangeStart, rangeEnd } = clampVerseRange(s.rangeStart, s.rangeEnd, safeMax);
+      return { page: clampedPage, pageMaxVerse: safeMax, rangeStart, rangeEnd };
+    }),
+
+  setPageRange: (page, maxVerse, start, end) =>
+    set(() => {
+      const clampedPage = clampPage(page);
+      const safeMax = Math.max(1, Math.trunc(maxVerse));
+      const { rangeStart, rangeEnd } = clampVerseRange(start, end, safeMax);
       return { page: clampedPage, pageMaxVerse: safeMax, rangeStart, rangeEnd };
     }),
 

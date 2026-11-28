@@ -4,11 +4,13 @@ import { synthesizeWordSegments } from '../core/sync-resolver';
 import { BISMILLAH_TEXT, SHAMIM_BISMILLAH_CLIP } from '../core/bismillah';
 import type { PlatformBridge } from '../platform/bridge';
 import bundledPages from '../assets/data/mushaf-604.json';
+import surahsJson from '../assets/data/surahs-114.json';
 import shamimTimings from '../assets/data/shamim-baqarah-timings.json';
 
 type TimingMap = Record<string, { startMs: number; endMs: number }>;
 const SHAMIM_MAP = shamimTimings as TimingMap;
 const BUNDLED_MAP = bundledPages as Record<string, VerseEntry[]>;
+const SURAHS_META = surahsJson as Array<{ id: number; ayahs: number; startPage: number }>;
 
 function pad3(n: number): string {
   return String(n).padStart(3, '0');
@@ -16,6 +18,7 @@ function pad3(n: number): string {
 
 export class PublicRecitationProvider implements RecitationProvider {
   private pageCache = new Map<number, VerseEntry[]>();
+  private surahCache = new Map<number, VerseEntry[]>();
 
   constructor(private bridge: PlatformBridge) {
     for (const [pageStr, verses] of Object.entries(BUNDLED_MAP)) {
@@ -29,6 +32,55 @@ export class PublicRecitationProvider implements RecitationProvider {
    */
   getCachedPageVerses(page: number): VerseEntry[] | null {
     return this.pageCache.get(page) ?? null;
+  }
+
+  /**
+   * Synchronous lookup of a full Surah from the bundled 604-page Mushaf cache if complete.
+   */
+  getCachedSurahVerses(surahId: number): VerseEntry[] | null {
+    const existing = this.surahCache.get(surahId);
+    if (existing) return existing;
+    const meta = SURAHS_META[surahId - 1];
+    if (!meta) return null;
+
+    const collected: VerseEntry[] = [];
+    const nextStart = SURAHS_META[surahId]?.startPage ?? 604;
+    const endPage = Math.min(604, Math.max(meta.startPage, nextStart));
+    for (let p = meta.startPage; p <= endPage; p++) {
+      const pv = this.pageCache.get(p);
+      if (!pv) return null;
+      for (const v of pv) {
+        if (v.surah === surahId) collected.push(v);
+      }
+    }
+    if (collected.length === meta.ayahs) {
+      this.surahCache.set(surahId, collected);
+      return collected;
+    }
+    return null;
+  }
+
+  /**
+   * Loads ALL verses of a Surah (for Full Surah Mode), reading instantaneously from
+   * bundled mushaf-604.json when complete, or fetching from AlQuran Cloud otherwise.
+   */
+  async getSurahVerses(surahId: number): Promise<VerseEntry[]> {
+    const cached = this.getCachedSurahVerses(surahId);
+    if (cached && cached.length > 0) return cached;
+
+    const url = `https://api.alquran.cloud/v1/surah/${surahId}/quran-uthmani`;
+    const json = await this.bridge.cacheJson<{
+      data?: { ayahs?: Array<{ numberInSurah: number; text: string }> };
+    }>(`surah-${surahId}`, url);
+
+    const verses: VerseEntry[] = (json?.data?.ayahs ?? []).map((a) => ({
+      verseKey: `${surahId}:${a.numberInSurah}`,
+      surah: surahId,
+      ayah: a.numberInSurah,
+      textUthmani: a.text
+    }));
+    if (verses.length > 0) this.surahCache.set(surahId, verses);
+    return verses;
   }
 
   /**
@@ -75,7 +127,6 @@ export class PublicRecitationProvider implements RecitationProvider {
     if (verse.isBismillah) {
       if (reciter.providerMode === 'local-baqarah') {
         const durationMs = SHAMIM_BISMILLAH_CLIP.endMs - SHAMIM_BISMILLAH_CLIP.startMs;
-        // Use dedicated pre-sliced clip (/audio/shamim/002000.mp3) to avoid Android WebView seek bugs
         if (!localOverrideUrl) {
           return {
             verseKey: verse.verseKey,
@@ -124,7 +175,6 @@ export class PublicRecitationProvider implements RecitationProvider {
       const seg = SHAMIM_MAP[verse.verseKey];
       if (seg) {
         const durationMs = seg.endMs - seg.startMs;
-        // Dedicated per-ayah MP3 clip (002001.mp3..002010.mp3) -> zero seek-reset on Android WebView
         if (!localOverrideUrl && verse.ayah >= 1 && verse.ayah <= 10) {
           return {
             verseKey: verse.verseKey,

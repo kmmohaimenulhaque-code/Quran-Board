@@ -1,6 +1,7 @@
 import type { WordSegment } from './types';
 
 const PAUSE_MARKS = new Set(['ۖ', 'ۗ', 'ۘ', 'ۙ', 'ۚ', 'ۛ', 'ۜ', '۞', '۩']);
+const PAUSE_MARK_REGEX = /[ۖۗۘۙۚۛۜ]/;
 
 export function tokenizeArabicWords(textUthmani: string): string[] {
   const raw = textUthmani.trim().split(/\s+/).filter(Boolean);
@@ -16,8 +17,8 @@ export function tokenizeArabicWords(textUthmani: string): string[] {
 }
 
 /**
- * Deterministic character-weighted fallback word timestamp synthesizer.
- * Ensures word-by-word reveal never stalls if external timing JSON is unavailable.
+ * Deterministic Tajweed-weighted fallback word timestamp synthesizer.
+ * Accounts for base letters, maddah elongation (ٓ), shaddah (ّ), and waqf pause marks (ۖۗۚ).
  */
 export function synthesizeWordSegments(
   textUthmani: string,
@@ -30,8 +31,10 @@ export function synthesizeWordSegments(
   const safeDuration = Math.max(100, durationMs);
   const weights = tokens.map((w) => {
     const baseLen = w.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').length;
-    const maddBonus = /ٓ/.test(w) ? 3.2 : 0;
-    return Math.max(2, baseLen * 1.15 + maddBonus);
+    const maddBonus = /ٓ/.test(w) ? 3.4 : 0;
+    const shaddahBonus = /ّ/.test(w) ? 0.8 : 0;
+    const waqfBonus = PAUSE_MARK_REGEX.test(w) ? 2.2 : 0;
+    return Math.max(2, baseLen * 1.15 + maddBonus + shaddahBonus + waqfBonus);
   });
   const totalWeight = weights.reduce((acc, w) => acc + w, 0) || 1;
 

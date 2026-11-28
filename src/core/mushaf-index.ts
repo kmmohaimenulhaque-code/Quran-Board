@@ -42,6 +42,26 @@ export function slicePageVerses(
   return verses.slice(s - 1, e);
 }
 
+/**
+ * Finds the exact 1-based [rangeStart, rangeEnd] indices for a specific Surah on a Madani page.
+ * Fixes shared multi-Surah pages (e.g., Page 604: 112 Al-Ikhlas -> 1..4, 113 Al-Falaq -> 5..9, 114 An-Nas -> 10..15).
+ */
+export function getSurahSliceOnPage(
+  verses: VerseEntry[],
+  surahId: number
+): { rangeStart: number; rangeEnd: number } | null {
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < verses.length; i++) {
+    if (verses[i].surah === surahId) {
+      if (first === -1) first = i + 1;
+      last = i + 1;
+    }
+  }
+  if (first === -1 || last === -1) return null;
+  return { rangeStart: first, rangeEnd: last };
+}
+
 export function formatTelemetryRange(verses: VerseEntry[]): string {
   if (verses.length === 0) return '00–00';
   const first = verses[0];
